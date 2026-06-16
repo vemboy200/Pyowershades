@@ -1,6 +1,6 @@
 # Pyowershades
 
-Pyowershades is an asyncio Python library for communicating with [PowerShades](https://powershades.com) motorized shade controllers over UDP. Handles connection management, packet building and parsing, device discovery, and asynchronous status push callbacks. While orginally developed for use in Home Assistant it can work for any asyncio application.
+Pyowershades is an asyncio Python library for communicating with [PowerShades](https://powershades.com) motorized shade controllers over UDP. It handles connection management, packet building and parsing, device discovery, and asynchronous status push callbacks. While orginally developed for use in Home Assistant it can work for any asyncio application.
 
 ## Requirements
 
