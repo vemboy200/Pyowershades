@@ -1,6 +1,6 @@
 # pyowershades
 
-Asyncio Python library for communicating with [PowerShades](https://powershades.com) motorized shade controllers over UDP. Handles connection management, packet building and parsing, device discovery, and asynchronous status push callbacks. No Home Assistant dependency — suitable for use in any asyncio application.
+Pyowershades is an asyncio Python library for communicating with [PowerShades](https://powershades.com) motorized shade controllers over UDP. Handles connection management, packet building and parsing, device discovery, and asynchronous status push callbacks. While orginally developed for use in Home Assistant it can work for any asyncio application.
 
 ## Requirements
 
@@ -108,8 +108,9 @@ Opcodes (`OP_GET_STATUS`, `OP_SET_POSITION`, `OP_JOG_UP`, `OP_JOG_DOWN`, `OP_JOG
 
 ## Notes
 
-- PowerShades devices send status pushes only to the last controller that sent them a command. If another controller (e.g. the PowerShades app) sends a command, your connection will stop receiving pushes until it sends one again.
-- State inference (opening, closing, open, closed) is not done by this library — only raw position values are reported.
+- PowerShades devices send status pushes only to the last controller that sent them a command. If another controller (e.g. the PowerShades app or Control4) sends a command, your connection will stop receiving pushes until it sends one again.
+- State inference (opening, closing, open, closed) is not done by this library (beacuse the shade does not send it) — only raw position values are reported.
+- Push packets are sent every ~10 seconds by the shade while its moving
 - Tested with PoE and Wi-Fi PowerShades controllers. RF hub support is unknown.
 
 ## License
