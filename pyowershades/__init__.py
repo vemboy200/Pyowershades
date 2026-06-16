@@ -33,6 +33,7 @@ from .const import (
 from .protocol import (
     GET_SHADE_NAME_PAYLOAD,
     StatusReply,
+    battery_percentage,
     build_packet,
     build_set_limit_payload,
     build_set_name_payload,
@@ -45,6 +46,7 @@ from .protocol import (
 
 __all__ = [
     "DiscoveredDevice",
+    "battery_percentage",
     "DISCOVERY_TIMEOUT",
     "GET_SHADE_NAME_PAYLOAD",
     "LIMIT_LOWER",

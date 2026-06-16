@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyowershades"
-version = "0.1.0"
+version = "0.1.1"
 description = "Asyncio library for PowerShades motorized blinds"
 readme = "README.md"
 license = {text = "MIT"}
