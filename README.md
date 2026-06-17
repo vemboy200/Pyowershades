@@ -109,9 +109,10 @@ Opcodes (`OP_GET_STATUS`, `OP_SET_POSITION`, `OP_JOG_UP`, `OP_JOG_DOWN`, `OP_JOG
 ## Notes
 
 - PowerShades devices send status pushes only to the last controller that sent them a command. If another controller (e.g. the PowerShades app or Control4) sends a command, your connection will stop receiving pushes until it sends one again.
-- State inference (opening, closing, open, closed) is not done by this library (beacuse the shade does not send it) — only raw position values are reported.
-- Push packets are sent every ~10 seconds by the shade while its moving
+- State inference (opening, closing, open, closed) is not done by this library (beacuse the shade does not send it), only raw position values are reported.
+- Push packets are sent every ~10 seconds by the shade while its moving.
 - Tested with PoE and Wi-Fi PowerShades controllers. RF hub support is unknown.
+- No authentitcation is needed to control the shade, this means anyone on your local network using this can control your shade(s).
 
 ## License
 
