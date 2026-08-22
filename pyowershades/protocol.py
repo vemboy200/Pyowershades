@@ -5,8 +5,8 @@ Packet layout (little-endian):
 The CRC covers Op + Sequence + Channel + Reserved + Payload.
 """
 
-from dataclasses import dataclass
 import struct
+from dataclasses import dataclass
 from typing import TypedDict
 
 from .const import OP_GET_STATUS

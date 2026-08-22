@@ -1,8 +1,8 @@
 """Asyncio UDP transport and discovery for PowerShades devices."""
 
 import asyncio
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from typing import TypedDict, override
 
 from .const import (
