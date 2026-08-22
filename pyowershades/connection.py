@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Callable
 import logging
-from typing import TypedDict
+from typing import TypedDict, override
 
 from .const import (
     BROADCAST_IP,
@@ -62,6 +62,7 @@ class _PowerShadesProtocol(asyncio.DatagramProtocol):
         # so at most one request per op is pending at a time.
         self.pending: dict[int, asyncio.Future[bytes]] = {}
 
+    @override
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         if not verify_packet(data):
             _LOGGER.debug("Dropping invalid packet from %s: %s", addr[0], data.hex())
@@ -85,6 +86,7 @@ class _PowerShadesProtocol(asyncio.DatagramProtocol):
             if status is not None:
                 self._on_status(status)
 
+    @override
     def error_received(self, exc: Exception) -> None:
         _LOGGER.debug("UDP error received: %s", exc)
 
@@ -177,6 +179,7 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
     def __init__(self, results: dict[str, DiscoveredDevice]) -> None:
         self._results = results
 
+    @override
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         if not verify_packet(data):
             _LOGGER.debug("Dropping invalid discovery reply from %s", addr[0])
@@ -192,6 +195,7 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
             }
             _LOGGER.debug("Discovered device %s (serial %s)", addr[0], parsed["serial"])
 
+    @override
     def error_received(self, exc: Exception) -> None:
         _LOGGER.debug("Discovery UDP error: %s", exc)
 
