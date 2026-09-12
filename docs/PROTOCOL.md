@@ -4,11 +4,14 @@ This is a reference for the UDP protocol `pyowershades` speaks to PowerShades Po
 
 ## Provenance and scope
 
-This isn't guesswork. It comes from three sources, cross-checked against each other:
+This isn't guesswork. It comes from four sources, cross-checked against each other:
 
 1. **Live packet captures and interoperability testing** against real PowerShades hardware, done by this project's maintainer.
-2. **PowerShades Config.NET**, the vendor's own official Windows configuration app, decompiled for research purposes to confirm field layouts and to find protocol surface this library didn't implement yet.
-3. **[`developer-powershades/savant-powershades-profile`](https://github.com/developer-powershades/savant-powershades-profile)**, the vendor's own published driver for the Savant home-automation platform, which contains working reference code for the same protocol.
+2. **PowerShades Config.NET**, the vendor's own official Windows configuration app, decompiled for research purposes to confirm field names and to find protocol surface this library didn't implement yet.
+3. **`PowershadesCommon.dll`**, the shared library the app itself depends on, also decompiled — this is what actually defines each message's wire layout (field types, order, and packing), as opposed to just how the app happens to use them.
+4. **[`developer-powershades/savant-powershades-profile`](https://github.com/developer-powershades/savant-powershades-profile)**, the vendor's own published driver for the Savant home-automation platform, which contains working reference code for the same protocol.
+
+Struct layouts sourced from #3 have been cross-validated against real capture data (see the Debug/Extended Status and Get Device ID rows below) — every byte decoded to a self-consistent, physically sensible picture (battery voltage, position, hall-sensor counts, active firmware bank), which is the strongest confirmation this document has for anything.
 
 The library only ever *sends and parses this protocol locally on your own network to control devices you own* — nothing here talks to PowerShades' cloud, and this project has no affiliation with PowerShades. Documenting the full command set (including commands this library doesn't use) is standard practice for interoperability libraries in this space; see projects like `python-kasa`, `pychromecast`, or any Home Assistant custom component for similar vendor-protocol references.
 
@@ -25,7 +28,7 @@ All packets are a single UDP datagram to/from port 42, little-endian:
 | 4 | Op | command/opcode, see table below |
 | 5 | Sequence | rolling counter, wraps before 255 |
 | 6 | Channel | device index — which paired shade on an RF gateway a command targets; `0` for PoE shades and gateway-wide commands |
-| 7 | Reserved | unused, `0` |
+| 7 | `UseChannelMask` | confirmed named field (not just reserved padding); presumably turns `Channel` into a channel-bitmask for RF-gateway group-broadcast commands. Currently always sent as `0` — worth revisiting for RF hub support |
 | 8+ | Payload | shape depends on `Op`, see per-command notes |
 
 Replies use the same envelope, echoed back with data appended after the header.
@@ -67,12 +70,12 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 | `0x23` / 35 | Step Up | Implemented | |
 | `0x24` / 36 | Step Down | Implemented | |
 | `0x25` / 37 | Reverse Direction | Candidate | side effect: clears travel limits when sent |
-| `0x26` / 38 | Debug/Extended Status | Implemented (raw) | includes end-stop and PoE I/O status fields not exposed by Get Status; field names are confirmed but exact byte widths aren't (shared-library gap, see below), so `pyowershades` returns the raw payload pending a typed parser |
+| `0x26` / 38 | Debug/Extended Status | Implemented | full struct confirmed from `PowershadesCommon.dll` and validated against a real capture — hall-sensor counts, both end stops, motor RPM/duty-cycle, a lifetime watchdog-trip counter, PoE/dry-contact/LED status booleans, and a 50-byte error list (schema still unknown, exposed as raw bytes) |
 | `0x27` / 39 | PoE Motor Parameters (get/set) | Candidate | speed and motor-tuning surface, admin-gated — see below |
 | `0x28` / 40 | Broadcast Status Request | Candidate | status query sent to the broadcast address rather than a specific device |
 | `0x2A` / 42 | RF Unlink Feedback | Candidate | RF only, disables 2-way ack; distinct from Unpair Device |
 | `0x2D` / 45 | Set System Clock | Candidate | timezone offset, DST flag, and a Unix timestamp — the device keeps its own clock |
-| `0x2E` / 46 | Get Device ID | Implemented (raw) | firmware revision, active flash bank, and a model-version byte that gates other behaviors; same shared-library gap as Debug/Extended Status, so `pyowershades` returns the raw payload pending a typed parser |
+| `0x2E` / 46 | Get Device ID | Implemented | full struct confirmed from `PowershadesCommon.dll` and validated against a real capture — two firmware bank revisions plus a status bitmask saying which is active, a model-version byte (reads `0` on the tested PoE shade, so "2 = Gen 2" doesn't apply universally), DHCP/IP/hostname fields, and two fields (`serial_raw`, `end_stop_raw`) whose exact purpose is still unconfirmed (both read as zero on real hardware) |
 | `0x2F` / 47 | PoE Cycle Test | Candidate | repeatedly runs the shade for a set dwell period and cycle count; a manufacturing/QA burn-in feature, not part of normal operation |
 | `0x30` / 48 | Firmware Update | Destructive/admin-gated | flashes new firmware over UDP in 64-byte chunks with an address/ack handshake; a botched transfer can require vendor support to recover |
 | `0x34` / 52 | Get/Set Shade Name (PoE) | Implemented | |
@@ -85,7 +88,7 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 | `0x3E` / 62 | Add Remote | Candidate | RF only, not wired to a visible button in the vendor app, possibly legacy |
 | `0x40` / 64 | JSON Test Message | Implemented (raw send) | an alternate JSON envelope over the same UDP port; `pyowershades` can frame and send an arbitrary payload in the wire format the vendor app uses, but the JSON schema the firmware actually accepts is undocumented anywhere, so this is a raw exploration tool rather than a defined feature |
 | `0x41` / 65 | Factory Reset | Destructive/admin-gated | |
-| `0x44` / 68 | Cloud Update Check/Trigger | Candidate | payload flag 1 = check for a newer version (device replies with a result field after querying its cloud dashboard), 2 = trigger an install; the device does its own fetch, so this fits the same "device-initiated update" pattern used by many local-first integrations (WLED, Reolink) — not gated behind Admin Access |
+| `0x44` / 68 | Cloud Update Check/Trigger | Candidate | payload flag 1 = check for a newer version (device replies with a result field after querying its cloud dashboard), 2 = trigger an install; the device does its own fetch, so this fits the same "device-initiated update" pattern used by many local-first integrations (WLED, Reolink) — not gated behind Admin Access. The check reply's `Result` field is confirmed from `PowershadesCommon.dll` as a plain 4-byte unsigned int |
 | `0x83` / 131 | Raw Test Command | Candidate | generic debug/test op with an arbitrary payload |
 
 ## Admin access and the factory key
@@ -101,4 +104,5 @@ If `pyowershades` ever implements a command that needs this, it should send both
 - The RF pairing model (Pair Device, RF Link Feedback, RF Unlink Feedback, Unpair Device, Add Remote) is not fully disambiguated — some of these may be legacy paths not reachable from the current app UI. This needs real RF hardware to verify.
 - A few byte offsets in the Get Serial Number reply (IP/subnet/gateway, when present) are flagged as uncertain even in the vendor's own source, which contains a comment questioning whether its own documentation matches its sample data.
 - Fields in the Get Status reply marked reserved/future by the vendor (memory, time, cycle count, stall count, temperature) should not be assumed populated on real firmware without checking first.
-- Anything on this page not already implemented in `pyowershades` should be verified against a real packet capture before being relied on in code — decompiled/vendor-driver behavior and live wire behavior aren't guaranteed to be identical across firmware versions.
+- `DeviceIdReply`'s `serial_raw` and `end_stop_raw` fields, and `DebugInfoReply`'s `error_list` bytes, have confirmed types/sizes but unconfirmed meaning — all read as zero on the one real device tested so far.
+- Anything on this page not already implemented in `pyowershades` should be verified against a real packet capture before being relied on in code — decompiled/vendor-driver behavior and live wire behavior aren't guaranteed to be identical across firmware versions. Debug/Extended Status and Get Device ID are the two exceptions with real-hardware validation behind them; everything else marked "Candidate" or "Implemented (raw send)" is not yet verified this way.

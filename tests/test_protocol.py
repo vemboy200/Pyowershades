@@ -190,9 +190,19 @@ def test_build_json_test_payload_truncates_long_text() -> None:
     assert len(payload) == 1016
 
 
-def test_parse_debug_info_reply() -> None:
-    pkt = build_packet(OP_GET_DEBUG_INFO, payload=b"\x01\x00\x01")
-    assert parse_debug_info_reply(pkt) == b"\x01\x00\x01"
+def test_parse_debug_info_reply_real_capture() -> None:
+    # Captured from a real PoE shade sitting fully open at its top limit.
+    payload = bytes.fromhex(
+        "07000000000000affb2f640064000000f22a0000f22a0000a0060000f22a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010001"
+    )
+    pkt = build_packet(OP_GET_DEBUG_INFO, payload=payload)
+    result = parse_debug_info_reply(pkt)
+    assert result is not None
+    assert result.battery_mv == 12283
+    assert result.current_percent == 100
+    assert result.hall_count == result.end_stop_top
+    assert result.motor_duty_cycle == 0
+    assert result.io_poe_status is True
 
 
 def test_parse_debug_info_reply_wrong_op() -> None:
@@ -200,11 +210,30 @@ def test_parse_debug_info_reply_wrong_op() -> None:
     assert parse_debug_info_reply(pkt) is None
 
 
-def test_parse_device_id_reply() -> None:
-    pkt = build_packet(OP_GET_DEVICE_ID, payload=b"\x05\x00\x06\x00\x01\x02")
-    assert parse_device_id_reply(pkt) == b"\x05\x00\x06\x00\x01\x02"
+def test_parse_debug_info_reply_too_short() -> None:
+    pkt = build_packet(OP_GET_DEBUG_INFO, payload=b"\x00" * 10)
+    assert parse_debug_info_reply(pkt) is None
+
+
+def test_parse_device_id_reply_real_capture() -> None:
+    # Captured from the same shade - firmware rev 109 active, rev 97 idle.
+    payload = bytes.fromhex(
+        "0002000000000000000061006d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    )
+    pkt = build_packet(OP_GET_DEVICE_ID, payload=payload)
+    result = parse_device_id_reply(pkt)
+    assert result is not None
+    assert result.low_rev == 97
+    assert result.high_rev == 109
+    assert result.status_bits & 3 == 2  # high_rev bank is active
+    assert result.dhcp_enabled is False
 
 
 def test_parse_device_id_reply_wrong_op() -> None:
     pkt = build_packet(0x99, payload=b"\x01")
+    assert parse_device_id_reply(pkt) is None
+
+
+def test_parse_device_id_reply_too_short() -> None:
+    pkt = build_packet(OP_GET_DEVICE_ID, payload=b"\x00" * 10)
     assert parse_device_id_reply(pkt) is None

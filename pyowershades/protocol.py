@@ -432,32 +432,191 @@ def parse_status_reply(data: bytes) -> StatusReply | None:
     return StatusReply(position=position, battery_mv=battery_mv)
 
 
-def parse_debug_info_reply(data: bytes) -> bytes | None:
-    """Return the raw payload of a Get Debug Info reply (op 0x26).
+@dataclass(frozen=True)
+class DebugInfoReply:
+    """Parsed Get Debug Info reply (op 0x26)."""
 
-    The reply carries EndStopTOP, EndStopBOTTOM, and IO_PoE_Status fields
-    (confirmed from the vendor's app), but their exact byte widths live in
-    a shared library that wasn't available to decompile. Returns the raw
-    payload so it can be checked against a real device before a typed
-    parser is added.
-    """
+    client_state: int
+    motor_state: int
+    eth_tx_buffer_overflow: int
+    eth_rx_buffer_overflow: int
+    position_function_case: int
+    dry_contact_state: int
+    direction: int
+    watchdog_trip_count: int
+    battery_mv: int
+    target_percent: int
+    current_percent: int
+    motor_duty_cycle: int
+    hall_count: int
+    end_stop_top: int
+    end_stop_bottom: int
+    target_hall_count: int
+    hall_to_move: int
+    velocity_rpm: int
+    desired_rpm: int
+    thermistor_temp_c: float
+    motor_current: float
+    error_list: bytes
+    io_red_led: bool
+    io_green_led: bool
+    io_motor_sleep: bool
+    io_motor_direction: int
+    io_board_button: bool
+    io_poe_status: bool
+
+
+_DEBUG_INFO_FORMAT = "<8BHhhhiiiiiIIff50s6B"
+_DEBUG_INFO_SIZE = struct.calcsize(_DEBUG_INFO_FORMAT)
+
+
+def parse_debug_info_reply(data: bytes) -> DebugInfoReply | None:
+    """Parse a Get Debug Info reply packet."""
     header = parse_header(data)
     if header is None or header.op != OP_GET_DEBUG_INFO:
         return None
-    return data[HEADER_SIZE : HEADER_SIZE + header.length]
+    payload = data[HEADER_SIZE : HEADER_SIZE + header.length]
+    if len(payload) < _DEBUG_INFO_SIZE:
+        return None
+    (
+        client_state,
+        motor_state,
+        eth_tx_overflow,
+        eth_rx_overflow,
+        position_function_case,
+        dry_contact_state,
+        direction,
+        watchdog_trip_count,
+        battery_mv,
+        target_percent,
+        current_percent,
+        motor_duty_cycle,
+        hall_count,
+        end_stop_top,
+        end_stop_bottom,
+        target_hall_count,
+        hall_to_move,
+        velocity_rpm,
+        desired_rpm,
+        thermistor_temp_c,
+        motor_current,
+        error_list,
+        red_led,
+        green_led,
+        motor_sleep,
+        motor_direction,
+        board_button,
+        poe_status,
+    ) = struct.unpack(_DEBUG_INFO_FORMAT, payload[:_DEBUG_INFO_SIZE])
+    return DebugInfoReply(
+        client_state=client_state,
+        motor_state=motor_state,
+        eth_tx_buffer_overflow=eth_tx_overflow,
+        eth_rx_buffer_overflow=eth_rx_overflow,
+        position_function_case=position_function_case,
+        dry_contact_state=dry_contact_state,
+        direction=direction,
+        watchdog_trip_count=watchdog_trip_count,
+        battery_mv=battery_mv,
+        target_percent=target_percent,
+        current_percent=current_percent,
+        motor_duty_cycle=motor_duty_cycle,
+        hall_count=hall_count,
+        end_stop_top=end_stop_top,
+        end_stop_bottom=end_stop_bottom,
+        target_hall_count=target_hall_count,
+        hall_to_move=hall_to_move,
+        velocity_rpm=velocity_rpm,
+        desired_rpm=desired_rpm,
+        thermistor_temp_c=thermistor_temp_c,
+        motor_current=motor_current,
+        error_list=error_list,
+        io_red_led=bool(red_led),
+        io_green_led=bool(green_led),
+        io_motor_sleep=bool(motor_sleep),
+        io_motor_direction=motor_direction,
+        io_board_button=bool(board_button),
+        io_poe_status=bool(poe_status),
+    )
 
 
-def parse_device_id_reply(data: bytes) -> bytes | None:
-    """Return the raw payload of a Get Device ID reply (op 0x2E).
+@dataclass(frozen=True)
+class DeviceIdReply:
+    """Parsed Get Device ID reply (op 0x2E).
 
-    The reply carries the two firmware bank revisions, a status bitmask
-    (which bank is active), and a model version, but exact byte widths
-    are unconfirmed for the same reason as `parse_debug_info_reply`.
+    `status_bits & 3` tells you which firmware bank is active: 1 = the
+    bank holding `low_rev`, 2 = the bank holding `high_rev`. `serial_raw`
+    and `end_stop_raw` are exposed as-is - their exact purpose (relative
+    to the main Get Serial Number reply and the Debug Info end stops)
+    isn't confirmed; both read as zero on real PoE hardware so far.
     """
+
+    model: int
+    status_bits: int
+    serial_raw: tuple[int, int]
+    low_rev: int
+    high_rev: int
+    low_crc: int
+    high_crc: int
+    device_count: int
+    end_stop_raw: tuple[int, int, int]
+    dhcp_enabled: bool
+    ip_address: int
+    subnet: int
+    gateway: int
+    server_hostname: str | None
+    model_version: int
+
+
+_DEVICE_ID_FORMAT = "<BB2IHHHHI3iBIII50sB"
+_DEVICE_ID_SIZE = struct.calcsize(_DEVICE_ID_FORMAT)
+
+
+def parse_device_id_reply(data: bytes) -> DeviceIdReply | None:
+    """Parse a Get Device ID reply packet."""
     header = parse_header(data)
     if header is None or header.op != OP_GET_DEVICE_ID:
         return None
-    return data[HEADER_SIZE : HEADER_SIZE + header.length]
+    payload = data[HEADER_SIZE : HEADER_SIZE + header.length]
+    if len(payload) < _DEVICE_ID_SIZE:
+        return None
+    (
+        model,
+        status_bits,
+        serial_a,
+        serial_b,
+        low_rev,
+        high_rev,
+        low_crc,
+        high_crc,
+        device_count,
+        end_stop_a,
+        end_stop_b,
+        end_stop_c,
+        dhcp_enabled,
+        ip_address,
+        subnet,
+        gateway,
+        hostname_bytes,
+        model_version,
+    ) = struct.unpack(_DEVICE_ID_FORMAT, payload[:_DEVICE_ID_SIZE])
+    return DeviceIdReply(
+        model=model,
+        status_bits=status_bits,
+        serial_raw=(serial_a, serial_b),
+        low_rev=low_rev,
+        high_rev=high_rev,
+        low_crc=low_crc,
+        high_crc=high_crc,
+        device_count=device_count,
+        end_stop_raw=(end_stop_a, end_stop_b, end_stop_c),
+        dhcp_enabled=bool(dhcp_enabled),
+        ip_address=ip_address,
+        subnet=subnet,
+        gateway=gateway,
+        server_hostname=_decode_name(hostname_bytes),
+        model_version=model_version,
+    )
 
 
 def battery_percentage(battery_mv: int | None) -> int | None:

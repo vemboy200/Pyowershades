@@ -37,6 +37,8 @@ from .const import (
 )
 from .protocol import (
     GET_SHADE_NAME_PAYLOAD,
+    DebugInfoReply,
+    DeviceIdReply,
     StatusReply,
     battery_percentage,
     build_json_test_payload,
@@ -79,6 +81,8 @@ __all__ = [
     "REQUEST_RETRIES",
     "REQUEST_TIMEOUT",
     "UDP_PORT",
+    "DebugInfoReply",
+    "DeviceIdReply",
     "DiscoveredDevice",
     "PowerShadesConnection",
     "PowerShadesDeviceInfo",
