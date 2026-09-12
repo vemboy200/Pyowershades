@@ -5,13 +5,18 @@ import struct
 import pytest
 
 from pyowershades import (
+    OP_GET_DEBUG_INFO,
+    OP_GET_DEVICE_ID,
     OP_GET_STATUS,
     StatusReply,
     battery_percentage,
+    build_json_test_payload,
     build_packet,
     build_set_limit_payload,
     build_set_name_payload,
     build_set_position_payload,
+    parse_debug_info_reply,
+    parse_device_id_reply,
     parse_serial_reply,
     parse_shade_name_reply,
     parse_status_reply,
@@ -172,3 +177,34 @@ def test_parse_shade_name_reply_empty() -> None:
 )
 def test_battery_percentage(mv: int | None, expected: int | None) -> None:
     assert battery_percentage(mv) == expected
+
+
+def test_build_json_test_payload() -> None:
+    payload = build_json_test_payload('{"foo": 1}')
+    assert len(payload) == 1016
+    assert payload.startswith(b'{"foo": 1}')
+
+
+def test_build_json_test_payload_truncates_long_text() -> None:
+    payload = build_json_test_payload("A" * 2000)
+    assert len(payload) == 1016
+
+
+def test_parse_debug_info_reply() -> None:
+    pkt = build_packet(OP_GET_DEBUG_INFO, payload=b"\x01\x00\x01")
+    assert parse_debug_info_reply(pkt) == b"\x01\x00\x01"
+
+
+def test_parse_debug_info_reply_wrong_op() -> None:
+    pkt = build_packet(0x99, payload=b"\x01")
+    assert parse_debug_info_reply(pkt) is None
+
+
+def test_parse_device_id_reply() -> None:
+    pkt = build_packet(OP_GET_DEVICE_ID, payload=b"\x05\x00\x06\x00\x01\x02")
+    assert parse_device_id_reply(pkt) == b"\x05\x00\x06\x00\x01\x02"
+
+
+def test_parse_device_id_reply_wrong_op() -> None:
+    pkt = build_packet(0x99, payload=b"\x01")
+    assert parse_device_id_reply(pkt) is None

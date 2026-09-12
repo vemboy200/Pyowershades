@@ -9,7 +9,7 @@ import struct
 from dataclasses import dataclass
 from typing import TypedDict
 
-from .const import OP_GET_STATUS
+from .const import OP_GET_DEBUG_INFO, OP_GET_DEVICE_ID, OP_GET_STATUS
 
 
 class SerialReply(TypedDict):
@@ -320,6 +320,16 @@ def build_set_name_payload(name: str) -> bytes:
     return b"\x01" + name.encode("ascii")[:50].ljust(50, b"\x00")
 
 
+def build_json_test_payload(payload: str) -> bytes:
+    """Build the payload for the raw JSON test message (op 0x40).
+
+    The device's accepted JSON schema for this op isn't documented anywhere
+    in the vendor's own app - this only reproduces the wire framing (a
+    fixed 1016-byte ASCII buffer) it uses to send one.
+    """
+    return payload.encode("ascii")[:1016].ljust(1016, b"\x00")
+
+
 @dataclass(frozen=True)
 class PacketHeader:
     """Parsed packet header."""
@@ -420,6 +430,34 @@ def parse_status_reply(data: bytes) -> StatusReply | None:
     ) = struct.unpack("<hhHHIIIhII", payload[:30])
     position = percent if 0 <= percent <= 100 else None
     return StatusReply(position=position, battery_mv=battery_mv)
+
+
+def parse_debug_info_reply(data: bytes) -> bytes | None:
+    """Return the raw payload of a Get Debug Info reply (op 0x26).
+
+    The reply carries EndStopTOP, EndStopBOTTOM, and IO_PoE_Status fields
+    (confirmed from the vendor's app), but their exact byte widths live in
+    a shared library that wasn't available to decompile. Returns the raw
+    payload so it can be checked against a real device before a typed
+    parser is added.
+    """
+    header = parse_header(data)
+    if header is None or header.op != OP_GET_DEBUG_INFO:
+        return None
+    return data[HEADER_SIZE : HEADER_SIZE + header.length]
+
+
+def parse_device_id_reply(data: bytes) -> bytes | None:
+    """Return the raw payload of a Get Device ID reply (op 0x2E).
+
+    The reply carries the two firmware bank revisions, a status bitmask
+    (which bank is active), and a model version, but exact byte widths
+    are unconfirmed for the same reason as `parse_debug_info_reply`.
+    """
+    header = parse_header(data)
+    if header is None or header.op != OP_GET_DEVICE_ID:
+        return None
+    return data[HEADER_SIZE : HEADER_SIZE + header.length]
 
 
 def battery_percentage(battery_mv: int | None) -> int | None:

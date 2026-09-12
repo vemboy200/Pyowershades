@@ -41,7 +41,7 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 
 ## Command reference
 
-"Implemented" means `pyowershades` builds/parses this command today. "Candidate" means it's real, confirmed protocol surface that isn't wired up yet but could become a future feature. "Destructive/admin-gated" is called out separately below the table.
+"Implemented" means `pyowershades` builds/parses this command today. "Implemented (raw)" means it can send the command and/or return the reply's raw bytes, but doesn't parse a typed result yet — usually because the exact field layout lives in a shared library that wasn't available to decompile, so it needs verifying against a real device first. "Candidate" means it's real, confirmed protocol surface that isn't wired up yet but could become a future feature. "Destructive/admin-gated" is called out separately below the table.
 
 | Op (hex / dec) | Name | Status | Notes |
 | --- | --- | --- | --- |
@@ -58,21 +58,21 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 | `0x0E` / 14 | Set Serial Number | Destructive/admin-gated | overwrites the device's own identity |
 | `0x13` / 19 | IP Whitelisting | Candidate | get/set up to 4 allowed controller IPv4 addresses plus an enable flag; separate access-control feature from Set IP Settings |
 | `0x16` / 22 | RF Program Button | Candidate | RF only, simulates the physical remote's pairing button |
-| `0x18` / 24 | Reboot | Candidate | |
+| `0x18` / 24 | Reboot | Implemented | |
 | `0x1A` / 26 | Set Position | Implemented | move to a 0–100% target; also has an RF-gateway group-broadcast form addressing multiple paired channels at once |
 | `0x1D` / 29 | Get Status | Implemented | position, moving state, and voltage; several fields the vendor's own source marks reserved/future (memory, time, cycles, stalls, temperature) aren't populated on current firmware |
 | `0x1E` / 30 | Clear Limits | Implemented | |
-| `0x1F` / 31 | Save Limits | Candidate | |
+| `0x1F` / 31 | Save Limits | Implemented | |
 | `0x21` / 33 | RF Link Feedback (pair, 2-way ack) | Candidate | RF only; distinct from Pair Device — the RF pairing state machine isn't fully mapped out yet |
 | `0x23` / 35 | Step Up | Implemented | |
 | `0x24` / 36 | Step Down | Implemented | |
 | `0x25` / 37 | Reverse Direction | Candidate | side effect: clears travel limits when sent |
-| `0x26` / 38 | Debug/Extended Status | Candidate | includes end-stop and PoE I/O status booleans not exposed by Get Status |
+| `0x26` / 38 | Debug/Extended Status | Implemented (raw) | includes end-stop and PoE I/O status fields not exposed by Get Status; field names are confirmed but exact byte widths aren't (shared-library gap, see below), so `pyowershades` returns the raw payload pending a typed parser |
 | `0x27` / 39 | PoE Motor Parameters (get/set) | Candidate | speed and motor-tuning surface, admin-gated — see below |
 | `0x28` / 40 | Broadcast Status Request | Candidate | status query sent to the broadcast address rather than a specific device |
 | `0x2A` / 42 | RF Unlink Feedback | Candidate | RF only, disables 2-way ack; distinct from Unpair Device |
 | `0x2D` / 45 | Set System Clock | Candidate | timezone offset, DST flag, and a Unix timestamp — the device keeps its own clock |
-| `0x2E` / 46 | Get Device ID | Candidate | firmware revision, active flash bank, and a model-version byte that gates other behaviors |
+| `0x2E` / 46 | Get Device ID | Implemented (raw) | firmware revision, active flash bank, and a model-version byte that gates other behaviors; same shared-library gap as Debug/Extended Status, so `pyowershades` returns the raw payload pending a typed parser |
 | `0x2F` / 47 | PoE Cycle Test | Candidate | repeatedly runs the shade for a set dwell period and cycle count; a manufacturing/QA burn-in feature, not part of normal operation |
 | `0x30` / 48 | Firmware Update | Destructive/admin-gated | flashes new firmware over UDP in 64-byte chunks with an address/ack handshake; a botched transfer can require vendor support to recover |
 | `0x34` / 52 | Get/Set Shade Name (PoE) | Implemented | |
@@ -83,9 +83,9 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 | `0x3C` / 60 | Admin Access | Destructive/admin-gated | privileged-access handshake required before other admin-gated commands are accepted — see below |
 | `0x3D` / 61 | Revert to Alternate Firmware Image | Destructive/admin-gated | the vendor app itself shows a warning dialog before sending this |
 | `0x3E` / 62 | Add Remote | Candidate | RF only, not wired to a visible button in the vendor app, possibly legacy |
-| `0x40` / 64 | JSON Test Message | Candidate | an alternate JSON envelope over the same UDP port; unconfirmed whether current firmware actually handles it |
+| `0x40` / 64 | JSON Test Message | Implemented (raw send) | an alternate JSON envelope over the same UDP port; `pyowershades` can frame and send an arbitrary payload in the wire format the vendor app uses, but the JSON schema the firmware actually accepts is undocumented anywhere, so this is a raw exploration tool rather than a defined feature |
 | `0x41` / 65 | Factory Reset | Destructive/admin-gated | |
-| `0x44` / 68 | Cloud Update Check/Trigger | Candidate | device-initiated firmware check against the vendor's cloud dashboard — a separate path from the local UDP firmware update above; not relevant to local-only control |
+| `0x44` / 68 | Cloud Update Check/Trigger | Candidate | payload flag 1 = check for a newer version (device replies with a result field after querying its cloud dashboard), 2 = trigger an install; the device does its own fetch, so this fits the same "device-initiated update" pattern used by many local-first integrations (WLED, Reolink) — not gated behind Admin Access |
 | `0x83` / 131 | Raw Test Command | Candidate | generic debug/test op with an arbitrary payload |
 
 ## Admin access and the factory key
