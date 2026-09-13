@@ -116,6 +116,7 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for a full reference of every UDP comma
 - Push packets are sent every ~10 seconds by the shade while its moving.
 - Tested with PoE PowerShades controllers. RF hub support is unknown.
 - No authentitcation is needed to control the shade, this means anyone on your local network using this can control your shade(s).
+- See [docs/KNOWN_BEHAVIORS.md](docs/KNOWN_BEHAVIORS.md) for real-world behaviors observed on live installations that don't have a confirmed root cause yet (e.g. green LED activity rotating across shades).
 
 ## License
 
