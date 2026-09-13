@@ -33,6 +33,46 @@ MODEL_NAMES = {
     100: "RF Gateway",
 }
 
+# PoEErrorCode - the values found in Get Debug Info's ErrorList field.
+# Confirmed against PowershadesCommon's PoEErrorCode enum and how
+# PowershadesConfig.NET's frmTest.cs decodes ErrorList (ASCII decimal
+# numbers, comma-separated) into this same 1-33 mapping.
+POE_ERROR_CODES = {
+    1: "Motor_Stall",
+    2: "Motor_Stop_Function",
+    3: "Active_Motor_Stop_Function",
+    4: "TCP_CRC_Mismatch",
+    5: "TCP_Firmware_Update",
+    6: "Reboot_Function",
+    7: "Motor_Over_Current",
+    8: "Flash_Save_Function",
+    9: "TCP_Keep_Alive",
+    10: "TCP_Key_Exchange",
+    11: "TCP_Get_ID",
+    12: "TCP_Get_Status",
+    13: "TCP_Set_Clock",
+    14: "TCP_Erase_Schedules",
+    15: "TCP_Add_Schedule",
+    16: "TCP_Set_Position",
+    17: "TCP_Save_Position",
+    18: "TCP_Recall_Position",
+    19: "TCP_Reboot",
+    20: "TCP_Set_Timeout",
+    21: "Enter_Sleep_Mode",
+    22: "Exit_Sleep_Mode",
+    23: "Battery_Low_Power_Down",
+    24: "ETH_RX_Overflow",
+    25: "ETH_TX_Overflow",
+    26: "DNS_Timer_Expired",
+    27: "DNS_Not_Bound",
+    28: "Host_Timeout",
+    29: "TCP_Send_Failed",
+    30: "RX_Length_Mismatch",
+    31: "Send_Timer_Expired",
+    32: "Motor_Fight_Back_Function",
+    33: "Erasing_Flash_Memory",
+}
+
 # Timing
 DISCOVERY_TIMEOUT = 3.0
 REQUEST_TIMEOUT = 2.0

@@ -17,6 +17,7 @@ from pyowershades import (
     build_set_position_payload,
     parse_debug_info_reply,
     parse_device_id_reply,
+    parse_error_list,
     parse_serial_reply,
     parse_shade_name_reply,
     parse_status_reply,
@@ -203,6 +204,26 @@ def test_parse_debug_info_reply_real_capture() -> None:
     assert result.hall_count == result.end_stop_top
     assert result.motor_duty_cycle == 0
     assert result.io_poe_status is True
+    assert result.error_list == []  # device had no logged errors
+
+
+def test_parse_error_list_empty() -> None:
+    assert parse_error_list(b"\x00" * 50) == []
+
+
+def test_parse_error_list_single_code() -> None:
+    raw = b"9," + b"\x00" * 48
+    assert parse_error_list(raw) == [9]
+
+
+def test_parse_error_list_multiple_codes() -> None:
+    raw = b"9,21,33," + b"\x00" * 42
+    assert parse_error_list(raw) == [9, 21, 33]
+
+
+def test_parse_error_list_ignores_malformed_tokens() -> None:
+    raw = b"9,,abc,21," + b"\x00" * 40
+    assert parse_error_list(raw) == [9, 21]
 
 
 def test_parse_debug_info_reply_wrong_op() -> None:

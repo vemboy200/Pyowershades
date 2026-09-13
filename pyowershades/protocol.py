@@ -457,13 +457,35 @@ class DebugInfoReply:
     desired_rpm: int
     thermistor_temp_c: float
     motor_current: float
-    error_list: bytes
+    error_list: list[int]
     io_red_led: bool
     io_green_led: bool
     io_motor_sleep: bool
     io_motor_direction: int
     io_board_button: bool
     io_poe_status: bool
+
+
+def parse_error_list(raw: bytes) -> list[int]:
+    """Parse Get Debug Info's ErrorList field into PoEErrorCode values.
+
+    The field is ASCII text, not a bitmask or raw byte array: a
+    comma-separated list of decimal numbers (e.g. b"9,21,33,\\x00...\\x00"),
+    null-padded to 50 bytes. Confirmed by reading how
+    PowershadesConfig.NET's frmTest.cs decodes this same field. Look up
+    each value in POE_ERROR_CODES for a human-readable name.
+    """
+    text = raw.decode("ascii", errors="ignore").replace("\x00", "")
+    codes = []
+    for token in text.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            codes.append(int(token))
+        except ValueError:
+            continue
+    return codes
 
 
 _DEBUG_INFO_FORMAT = "<8BHhhhiiiiiIIff50s6B"
@@ -530,7 +552,7 @@ def parse_debug_info_reply(data: bytes) -> DebugInfoReply | None:
         desired_rpm=desired_rpm,
         thermistor_temp_c=thermistor_temp_c,
         motor_current=motor_current,
-        error_list=error_list,
+        error_list=parse_error_list(error_list),
         io_red_led=bool(red_led),
         io_green_led=bool(green_led),
         io_motor_sleep=bool(motor_sleep),

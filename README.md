@@ -100,11 +100,12 @@ Raises `PowerShadesTimeoutError` if the device does not respond.
 | `parse_serial_reply(data)` | Parse a serial/model reply |
 | `parse_shade_name_reply(data)` | Parse a shade name reply |
 | `parse_device_name_reply(data)` | Parse a device name reply |
+| `parse_error_list(raw)` | Decode Get Debug Info's `error_list` (comma-separated `PoEErrorCode` values) into `list[int]` |
 | `battery_percentage(battery_mv)` | Convert mV to a battery percentage (0–100) |
 
 ### Constants
 
-Opcodes (`OP_GET_STATUS`, `OP_SET_POSITION`, `OP_JOG_UP`, `OP_JOG_DOWN`, `OP_JOG_STOP`, `OP_STEP_UP`, `OP_STEP_DOWN`, `OP_SET_LIMIT`, `OP_CLEAR_LIMITS`, `OP_INDICATE`, `OP_GET_SERIAL`, `OP_GET_SHADE_NAME`, `OP_GET_DEVICE_NAME`), limit types (`LIMIT_UPPER`, `LIMIT_LOWER`), and timing constants (`REQUEST_TIMEOUT`, `REQUEST_RETRIES`, `DISCOVERY_TIMEOUT`).
+Opcodes (`OP_GET_STATUS`, `OP_SET_POSITION`, `OP_JOG_UP`, `OP_JOG_DOWN`, `OP_JOG_STOP`, `OP_STEP_UP`, `OP_STEP_DOWN`, `OP_SET_LIMIT`, `OP_CLEAR_LIMITS`, `OP_INDICATE`, `OP_GET_SERIAL`, `OP_GET_SHADE_NAME`, `OP_GET_DEVICE_NAME`), limit types (`LIMIT_UPPER`, `LIMIT_LOWER`), `POE_ERROR_CODES` (int → name mapping for `parse_error_list`'s output), and timing constants (`REQUEST_TIMEOUT`, `REQUEST_RETRIES`, `DISCOVERY_TIMEOUT`).
 
 See [docs/PROTOCOL.md](docs/PROTOCOL.md) for a full reference of every UDP command the protocol supports, including ones this library doesn't implement yet.
 
