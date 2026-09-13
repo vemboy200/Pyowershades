@@ -9,7 +9,13 @@ import struct
 from dataclasses import dataclass
 from typing import TypedDict
 
-from .const import OP_GET_DEBUG_INFO, OP_GET_DEVICE_ID, OP_GET_STATUS
+from .const import (
+    DISABLE_TCP_CLOUD,
+    OP_DISABLES,
+    OP_GET_DEBUG_INFO,
+    OP_GET_DEVICE_ID,
+    OP_GET_STATUS,
+)
 
 
 class SerialReply(TypedDict):
@@ -639,6 +645,48 @@ def parse_device_id_reply(data: bytes) -> DeviceIdReply | None:
         server_hostname=_decode_name(hostname_bytes),
         model_version=model_version,
     )
+
+
+@dataclass(frozen=True)
+class DisablesReply:
+    """Parsed Feature Disables reply (op 0x35)."""
+
+    raw: int
+    tcp_cloud_disabled: bool
+
+
+def parse_disables_reply(data: bytes) -> DisablesReply | None:
+    """Parse a Get/Set Disables reply packet.
+
+    Sending this op with an empty payload is a Get (the device replies
+    with its current byte); sending it with a 1-byte payload is a Set
+    (the reply confirms the byte that was written) - both replies share
+    this same shape.
+    """
+    header = parse_header(data)
+    if header is None or header.op != OP_DISABLES:
+        return None
+    payload = data[HEADER_SIZE : HEADER_SIZE + header.length]
+    if len(payload) < 1:
+        return None
+    raw = payload[0]
+    return DisablesReply(raw=raw, tcp_cloud_disabled=bool(raw & DISABLE_TCP_CLOUD))
+
+
+def build_set_disables_payload(current: int, *, tcp_cloud_disabled: bool) -> bytes:
+    """Build a Set Disables payload that only changes the TCP/cloud bit.
+
+    `current` must be the raw byte from a prior Get Disables reply - this
+    preserves every other bit exactly as read. Writing a byte with only
+    the TCP/cloud bit set (and every other bit blindly cleared) would
+    silently undo any other Feature Disables the device already has set,
+    e.g. via the official app.
+    """
+    if tcp_cloud_disabled:
+        new_byte = current | DISABLE_TCP_CLOUD
+    else:
+        new_byte = current & ~DISABLE_TCP_CLOUD & 0xFF
+    return bytes([new_byte])
 
 
 def battery_percentage(battery_mv: int | None) -> int | None:

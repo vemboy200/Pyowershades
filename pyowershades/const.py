@@ -20,6 +20,7 @@ OP_STEP_DOWN = 0x24
 OP_GET_DEBUG_INFO = 0x26
 OP_GET_DEVICE_ID = 0x2E
 OP_GET_SHADE_NAME = 0x34
+OP_DISABLES = 0x35
 OP_GET_DEVICE_NAME = 0x3A
 OP_JSON_TEST = 0x40
 
@@ -75,6 +76,11 @@ POE_ERROR_CODES = {
     32: "Motor_Fight_Back_Function",
     33: "Erasing_Flash_Memory",
 }
+
+# Feature Disables (op 0x35) bit for TCP/cloud connectivity. Confirmed
+# against PowershadesConfig.NET's frmMotorConfigV2.cs (chkBoxTCPCloud
+# maps to bit 6 of DisablesByte via .NET BitArray, LSB-first).
+DISABLE_TCP_CLOUD = 0x40
 
 # Timing
 DISCOVERY_TIMEOUT = 3.0

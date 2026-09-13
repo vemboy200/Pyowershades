@@ -5,6 +5,8 @@ import struct
 import pytest
 
 from pyowershades import (
+    DISABLE_TCP_CLOUD,
+    OP_DISABLES,
     OP_GET_DEBUG_INFO,
     OP_GET_DEVICE_ID,
     OP_GET_STATUS,
@@ -12,11 +14,13 @@ from pyowershades import (
     battery_percentage,
     build_json_test_payload,
     build_packet,
+    build_set_disables_payload,
     build_set_limit_payload,
     build_set_name_payload,
     build_set_position_payload,
     parse_debug_info_reply,
     parse_device_id_reply,
+    parse_disables_reply,
     parse_error_list,
     parse_serial_reply,
     parse_shade_name_reply,
@@ -258,3 +262,42 @@ def test_parse_device_id_reply_wrong_op() -> None:
 def test_parse_device_id_reply_too_short() -> None:
     pkt = build_packet(OP_GET_DEVICE_ID, payload=b"\x00" * 10)
     assert parse_device_id_reply(pkt) is None
+
+
+def test_parse_disables_reply_tcp_cloud_enabled() -> None:
+    pkt = build_packet(OP_DISABLES, payload=bytes([0x01]))
+    result = parse_disables_reply(pkt)
+    assert result is not None
+    assert result.raw == 0x01
+    assert result.tcp_cloud_disabled is False
+
+
+def test_parse_disables_reply_tcp_cloud_disabled() -> None:
+    pkt = build_packet(OP_DISABLES, payload=bytes([0x01 | DISABLE_TCP_CLOUD]))
+    result = parse_disables_reply(pkt)
+    assert result is not None
+    assert result.raw == 0x41
+    assert result.tcp_cloud_disabled is True
+
+
+def test_parse_disables_reply_wrong_op() -> None:
+    pkt = build_packet(0x99, payload=bytes([0x01]))
+    assert parse_disables_reply(pkt) is None
+
+
+def test_parse_disables_reply_too_short() -> None:
+    pkt = build_packet(OP_DISABLES, payload=b"")
+    assert parse_disables_reply(pkt) is None
+
+
+def test_build_set_disables_payload_sets_bit_preserving_others() -> None:
+    # bit2 (PCB button disable) already set alongside the always-on bit0
+    current = 0x01 | 0x04
+    payload = build_set_disables_payload(current, tcp_cloud_disabled=True)
+    assert payload == bytes([current | DISABLE_TCP_CLOUD])
+
+
+def test_build_set_disables_payload_clears_bit_preserving_others() -> None:
+    current = 0x01 | 0x04 | DISABLE_TCP_CLOUD
+    payload = build_set_disables_payload(current, tcp_cloud_disabled=False)
+    assert payload == bytes([0x01 | 0x04])
