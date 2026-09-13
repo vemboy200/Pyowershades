@@ -28,9 +28,12 @@ LIMIT_UPPER = 0x0000
 LIMIT_LOWER = 0x0001
 
 # Model byte in the Get Serial Number reply
+MODEL_POE_SHADE = 1
+MODEL_RF_GATEWAY = 100
+
 MODEL_NAMES = {
-    1: "PoE Shade",
-    100: "RF Gateway",
+    MODEL_POE_SHADE: "PoE Shade",
+    MODEL_RF_GATEWAY: "RF Gateway",
 }
 
 # PoEErrorCode - the values found in Get Debug Info's ErrorList field.
