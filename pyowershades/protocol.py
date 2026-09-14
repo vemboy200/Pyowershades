@@ -10,11 +10,13 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 from .const import (
+    ADMIN_ACCESS_KEY,
     DISABLE_TCP_CLOUD,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
     OP_GET_DEVICE_ID,
     OP_GET_STATUS,
+    OP_POE_MOTOR_PARAMS,
 )
 
 
@@ -290,6 +292,9 @@ CrcTable = [
 
 # Get/Set flag payload for the Get PoE Shade Name command (0 = Get)
 GET_SHADE_NAME_PAYLOAD = b"\x00"
+
+# Admin Access (op 0x3C) payload - always this same fixed key.
+ADMIN_ACCESS_PAYLOAD = struct.pack("<I", ADMIN_ACCESS_KEY)
 
 
 def crc16_xmodem(data: bytes) -> int:
@@ -687,6 +692,161 @@ def build_set_disables_payload(current: int, *, tcp_cloud_disabled: bool) -> byt
     else:
         new_byte = current & ~DISABLE_TCP_CLOUD & 0xFF
     return bytes([new_byte])
+
+
+@dataclass(frozen=True)
+class MotorParametersReply:
+    """Parsed PoE Motor Parameters reply (op 0x27).
+
+    Confirmed against two independent real captures (2026-09-13, Gen 1
+    hardware, byte-for-byte identical) that the reply uses a different,
+    more compact layout than the 46-byte Set struct: SoftStopDecelCounts/
+    SoftStopDecelTime aren't present at all, and there IS a 1-byte leading
+    flag before the 19-field struct below (observed as 0x00 on a Get
+    reply - unconfirmed what it holds on a Set reply, so it's skipped
+    rather than surfaced as a field). SoftStopDecelCounts/Time's absence
+    isn't a guess - the vendor's own receive handler (`frmMain.cs`:
+    `this.motorParms = wb_MSG.UdpPoeMotorParameters;`) reads a
+    fixed-size union region regardless of the packet's actual Length
+    field, so those two trailing fields are stale/uninitialized buffer
+    memory on a real reply this short, not real device data - which is
+    also exactly why the vendor's own app never reads them back
+    anywhere. Every other field decoded from the real capture matches
+    the known factory defaults (e.g. DesiredRpmUP=75, MotorPowerUP=100
+    matching the maintainer's own screenshot of "Speed (%): 100").
+    """
+
+    speed_control_enable: bool
+    slow_down_target_input: int
+    computer_motor_power_tolerance: int
+    jog_dot_power_decel: int
+    jog_dot_power: int
+    desired_rpm_up: int
+    desired_rpm_up_decel: int
+    computer_motor_power_time_up: int
+    computer_motor_power_time_up_decel: int
+    motor_power_up: int
+    motor_power_up_decel: int
+    desired_rpm_down: int
+    desired_rpm_down_decel: int
+    computer_motor_power_time_down: int
+    computer_motor_power_time_down_decel: int
+    motor_power_down: int
+    motor_power_down_decel: int
+    soft_stop_delay: int
+    soft_stop_enable: bool
+
+
+_MOTOR_PARAMS_REPLY_FORMAT = "<3BhhIIHHhhIIHHhhBB"
+_MOTOR_PARAMS_REPLY_STRUCT_SIZE = struct.calcsize(_MOTOR_PARAMS_REPLY_FORMAT)
+# +1 for the leading flag byte the struct itself doesn't account for.
+_MOTOR_PARAMS_REPLY_SIZE = _MOTOR_PARAMS_REPLY_STRUCT_SIZE + 1
+
+# The outgoing Set struct is a different, longer shape than the reply -
+# it includes a leading ParamType byte and the trailing SoftStopDecelCounts/
+# SoftStopDecelTime fields the reply never actually sends.
+_MOTOR_PARAMS_SET_FORMAT = "<4BhhIIHHhhIIHHhhBBHH"
+
+
+def parse_motor_parameters_reply(data: bytes) -> MotorParametersReply | None:
+    """Parse a Get/Set PoE Motor Parameters reply packet."""
+    header = parse_header(data)
+    if header is None or header.op != OP_POE_MOTOR_PARAMS:
+        return None
+    payload = data[HEADER_SIZE : HEADER_SIZE + header.length]
+    if len(payload) < _MOTOR_PARAMS_REPLY_SIZE:
+        return None
+    # Skip the 1-byte leading flag - the struct proper starts right after it.
+    (
+        speed_control_enable,
+        slow_down_target_input,
+        computer_motor_power_tolerance,
+        jog_dot_power_decel,
+        jog_dot_power,
+        desired_rpm_up,
+        desired_rpm_up_decel,
+        computer_motor_power_time_up,
+        computer_motor_power_time_up_decel,
+        motor_power_up,
+        motor_power_up_decel,
+        desired_rpm_down,
+        desired_rpm_down_decel,
+        computer_motor_power_time_down,
+        computer_motor_power_time_down_decel,
+        motor_power_down,
+        motor_power_down_decel,
+        soft_stop_delay,
+        soft_stop_enable,
+    ) = struct.unpack(_MOTOR_PARAMS_REPLY_FORMAT, payload[1:_MOTOR_PARAMS_REPLY_SIZE])
+    return MotorParametersReply(
+        speed_control_enable=bool(speed_control_enable),
+        slow_down_target_input=slow_down_target_input,
+        computer_motor_power_tolerance=computer_motor_power_tolerance,
+        jog_dot_power_decel=jog_dot_power_decel,
+        jog_dot_power=jog_dot_power,
+        desired_rpm_up=desired_rpm_up,
+        desired_rpm_up_decel=desired_rpm_up_decel,
+        computer_motor_power_time_up=computer_motor_power_time_up,
+        computer_motor_power_time_up_decel=computer_motor_power_time_up_decel,
+        motor_power_up=motor_power_up,
+        motor_power_up_decel=motor_power_up_decel,
+        desired_rpm_down=desired_rpm_down,
+        desired_rpm_down_decel=desired_rpm_down_decel,
+        computer_motor_power_time_down=computer_motor_power_time_down,
+        computer_motor_power_time_down_decel=computer_motor_power_time_down_decel,
+        motor_power_down=motor_power_down,
+        motor_power_down_decel=motor_power_down_decel,
+        soft_stop_delay=soft_stop_delay,
+        soft_stop_enable=bool(soft_stop_enable),
+    )
+
+
+def build_set_motor_speed_payload_gen1(percent: int) -> bytes:
+    """Build a Set PoE Motor Parameters payload that sets Gen 1 motor speed.
+
+    This is the "Speed (%)" field in the vendor's own app (`frmMain.cs`'s
+    `numericMotorSpeed` -> `MotorPowerUP`/`MotorPowerDOWN`), not
+    DesiredRpmUP/DOWN. Confirmed valid range is 40-100 - the app itself
+    refuses to send anything below 40.
+
+    Gen 1 firmware ignores whatever was previously configured: the
+    vendor's own `SetPoeParametersCommand` hardcodes every field except
+    MotorPowerUP/DOWN to fixed constants when `modelVersion == 0`,
+    regardless of current device state (confirmed byte-for-byte from
+    `frmMain.cs` - SpeedControlEnable and SoftStopEnable are explicitly
+    turned OFF, not preserved). This replicates that exact template
+    rather than reading current state first, since Gen 1 discards it
+    anyway. Gen 2 behaves completely differently (preserves current
+    state, scales the value x10) and is not supported by this function -
+    check hardware generation before calling this.
+    """
+    if not 40 <= percent <= 100:
+        raise ValueError("percent must be between 40 and 100 (Gen 1 device floor)")
+    return struct.pack(
+        _MOTOR_PARAMS_SET_FORMAT,
+        1,  # ParamType: 1 = Set
+        0,  # SpeedControlEnable - off, per the vendor's own Gen 1 template
+        99,  # SlowDownTargetInput
+        2,  # ComputerMotorPowerTolerence
+        percent,  # JogDotPowerDecel - vendor sets this to MotorPowerUP too
+        percent,  # JogDotPower
+        75,  # DesiredRpmUP - fixed default, unrelated to this control on Gen 1
+        45,  # DesiredRpmUpDECEL
+        15,  # ComputerMotorPowerTimeUP
+        15,  # ComputerMotorPowerTimeUpDECEL
+        percent,  # MotorPowerUP
+        50,  # MotorPowerUpDECEL
+        75,  # DesiredRpmDOWN
+        45,  # DesiredRpmDownDECEL
+        15,  # ComputerMotorPowerTimeDOWN
+        15,  # ComputerMotorPowerTimeDownDECEL
+        percent,  # MotorPowerDOWN
+        50,  # MotorPowerDownDECEL
+        0,  # SoftStopDelay - never assigned by the vendor's own code either
+        0,  # SoftStopEnable - off
+        0,  # SoftStopDecelCounts
+        0,  # SoftStopDecelTime - never assigned by the vendor's own code either
+    )
 
 
 def battery_percentage(battery_mv: int | None) -> int | None:

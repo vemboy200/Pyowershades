@@ -18,10 +18,12 @@ OP_SAVE_LIMITS = 0x1F
 OP_STEP_UP = 0x23
 OP_STEP_DOWN = 0x24
 OP_GET_DEBUG_INFO = 0x26
+OP_POE_MOTOR_PARAMS = 0x27
 OP_GET_DEVICE_ID = 0x2E
 OP_GET_SHADE_NAME = 0x34
 OP_DISABLES = 0x35
 OP_GET_DEVICE_NAME = 0x3A
+OP_ADMIN_ACCESS = 0x3C
 OP_JSON_TEST = 0x40
 
 # Limit types
@@ -81,6 +83,12 @@ POE_ERROR_CODES = {
 # against PowershadesConfig.NET's frmMotorConfigV2.cs (chkBoxTCPCloud
 # maps to bit 6 of DisablesByte via .NET BitArray, LSB-first).
 DISABLE_TCP_CLOUD = 0x40
+
+# Admin Access (op 0x3C) key. A fixed constant baked into every copy of
+# the vendor's app - not real authentication, gates privileged commands
+# like PoE Motor Parameters. Must be sent immediately before the
+# privileged command, as an atomic pair.
+ADMIN_ACCESS_KEY = 179097173
 
 # Timing
 DISCOVERY_TIMEOUT = 3.0

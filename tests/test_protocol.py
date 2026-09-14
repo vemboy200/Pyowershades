@@ -5,23 +5,28 @@ import struct
 import pytest
 
 from pyowershades import (
+    ADMIN_ACCESS_KEY,
+    ADMIN_ACCESS_PAYLOAD,
     DISABLE_TCP_CLOUD,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
     OP_GET_DEVICE_ID,
     OP_GET_STATUS,
+    OP_POE_MOTOR_PARAMS,
     StatusReply,
     battery_percentage,
     build_json_test_payload,
     build_packet,
     build_set_disables_payload,
     build_set_limit_payload,
+    build_set_motor_speed_payload_gen1,
     build_set_name_payload,
     build_set_position_payload,
     parse_debug_info_reply,
     parse_device_id_reply,
     parse_disables_reply,
     parse_error_list,
+    parse_motor_parameters_reply,
     parse_serial_reply,
     parse_shade_name_reply,
     parse_status_reply,
@@ -78,7 +83,7 @@ def test_build_set_position_payload() -> None:
 
 
 def test_build_set_limit_payload() -> None:
-    from pyowershades import LIMIT_UPPER, LIMIT_LOWER
+    from pyowershades import LIMIT_LOWER, LIMIT_UPPER
 
     upper = build_set_limit_payload(LIMIT_UPPER)
     lower = build_set_limit_payload(LIMIT_LOWER)
@@ -301,3 +306,171 @@ def test_build_set_disables_payload_clears_bit_preserving_others() -> None:
     current = 0x01 | 0x04 | DISABLE_TCP_CLOUD
     payload = build_set_disables_payload(current, tcp_cloud_disabled=False)
     assert payload == bytes([0x01 | 0x04])
+
+
+def test_admin_access_payload_is_the_fixed_key() -> None:
+    assert ADMIN_ACCESS_PAYLOAD == struct.pack("<I", ADMIN_ACCESS_KEY)
+
+
+def _motor_params_reply_packet(
+    *,
+    speed_control_enable: int = 0,
+    slow_down_target_input: int = 99,
+    computer_motor_power_tolerance: int = 2,
+    jog_dot_power_decel: int = 100,
+    jog_dot_power: int = 100,
+    desired_rpm_up: int = 75,
+    desired_rpm_up_decel: int = 45,
+    computer_motor_power_time_up: int = 25,
+    computer_motor_power_time_up_decel: int = 15,
+    motor_power_up: int = 100,
+    motor_power_up_decel: int = 100,
+    desired_rpm_down: int = 75,
+    desired_rpm_down_decel: int = 45,
+    computer_motor_power_time_down: int = 25,
+    computer_motor_power_time_down_decel: int = 15,
+    motor_power_down: int = 100,
+    motor_power_down_decel: int = 100,
+    soft_stop_delay: int = 3,
+    soft_stop_enable: int = 0,
+) -> bytes:
+    """Build a reply packet matching the real, compact reply shape: a
+    1-byte leading flag (0 on a real Get reply) followed by the 19-field
+    struct, with no SoftStopDecelCounts/Time (see MotorParametersReply's
+    docstring for why the real device doesn't send those two)."""
+    payload = b"\x00" + struct.pack(
+        "<3BhhIIHHhhIIHHhhBB",
+        speed_control_enable,
+        slow_down_target_input,
+        computer_motor_power_tolerance,
+        jog_dot_power_decel,
+        jog_dot_power,
+        desired_rpm_up,
+        desired_rpm_up_decel,
+        computer_motor_power_time_up,
+        computer_motor_power_time_up_decel,
+        motor_power_up,
+        motor_power_up_decel,
+        desired_rpm_down,
+        desired_rpm_down_decel,
+        computer_motor_power_time_down,
+        computer_motor_power_time_down_decel,
+        motor_power_down,
+        motor_power_down_decel,
+        soft_stop_delay,
+        soft_stop_enable,
+    )
+    return build_packet(OP_POE_MOTOR_PARAMS, payload=payload)
+
+
+def test_parse_motor_parameters_reply() -> None:
+    pkt = _motor_params_reply_packet(
+        speed_control_enable=1, desired_rpm_up=60, desired_rpm_down=55
+    )
+    result = parse_motor_parameters_reply(pkt)
+    assert result is not None
+    assert result.speed_control_enable is True
+    assert result.desired_rpm_up == 60
+    assert result.desired_rpm_down == 55
+    assert result.soft_stop_delay == 3
+
+
+def test_parse_motor_parameters_reply_matches_real_capture_defaults() -> None:
+    """The helper's defaults are the exact values decoded from a real
+    capture (2026-09-13, Gen 1 hardware, still at factory settings)."""
+    pkt = _motor_params_reply_packet()
+    result = parse_motor_parameters_reply(pkt)
+    assert result is not None
+    assert result.speed_control_enable is False
+    assert result.slow_down_target_input == 99
+    assert result.computer_motor_power_tolerance == 2
+    assert result.desired_rpm_up == 75
+    assert result.desired_rpm_up_decel == 45
+    assert result.motor_power_up == 100  # matches the maintainer's own screenshot
+    assert result.desired_rpm_down == 75
+    assert result.motor_power_down == 100
+    assert result.soft_stop_enable is False
+
+
+def test_parse_motor_parameters_reply_wrong_op() -> None:
+    pkt = build_packet(0x99, payload=b"\x00" * 42)
+    assert parse_motor_parameters_reply(pkt) is None
+
+
+def test_parse_motor_parameters_reply_too_short() -> None:
+    pkt = build_packet(OP_POE_MOTOR_PARAMS, payload=b"\x00" * 10)
+    assert parse_motor_parameters_reply(pkt) is None
+
+
+def _unpack_set_payload(payload: bytes) -> tuple:
+    """Unpack a Set PoE Motor Parameters payload directly - this is the
+    46-byte outgoing struct (with ParamType), a different shape than
+    what parse_motor_parameters_reply expects for an incoming reply."""
+    return struct.unpack("<4BhhIIHHhhIIHHhhBBHH", payload)
+
+
+def test_build_set_motor_speed_payload_gen1_sets_power_both_directions() -> None:
+    payload = build_set_motor_speed_payload_gen1(70)
+    fields = _unpack_set_payload(payload)
+
+    assert fields[0] == 1  # ParamType: Set
+    motor_power_up = fields[10]
+    motor_power_down = fields[16]
+    jog_dot_power_decel = fields[4]
+    jog_dot_power = fields[5]
+    assert motor_power_up == 70
+    assert motor_power_down == 70
+    assert jog_dot_power == 70
+    assert jog_dot_power_decel == 70
+
+
+def test_build_set_motor_speed_payload_gen1_matches_vendor_fixed_template() -> None:
+    """Every field the vendor's own Gen 1 code hardcodes, not just the
+    speed value, must match exactly - Gen 1 discards whatever was
+    previously configured, confirmed byte-for-byte from frmMain.cs."""
+    payload = build_set_motor_speed_payload_gen1(100)
+    fields = _unpack_set_payload(payload)
+    assert fields[0] == 1  # ParamType: Set
+    (
+        _param_type,
+        speed_control_enable,
+        slow_down_target_input,
+        computer_motor_power_tolerance,
+        _jog_dot_power_decel,
+        _jog_dot_power,
+        desired_rpm_up,
+        _desired_rpm_up_decel,
+        _computer_motor_power_time_up,
+        _computer_motor_power_time_up_decel,
+        _motor_power_up,
+        motor_power_up_decel,
+        desired_rpm_down,
+        _desired_rpm_down_decel,
+        _computer_motor_power_time_down,
+        _computer_motor_power_time_down_decel,
+        _motor_power_down,
+        motor_power_down_decel,
+        soft_stop_delay,
+        soft_stop_enable,
+        soft_stop_decel_counts,
+        soft_stop_decel_time,
+    ) = fields
+
+    assert speed_control_enable == 0
+    assert slow_down_target_input == 99
+    assert computer_motor_power_tolerance == 2
+    assert desired_rpm_up == 75
+    assert desired_rpm_down == 75
+    assert motor_power_up_decel == 50
+    assert motor_power_down_decel == 50
+    assert soft_stop_enable == 0
+    assert soft_stop_delay == 0
+    assert soft_stop_decel_counts == 0
+    assert soft_stop_decel_time == 0
+
+
+def test_build_set_motor_speed_payload_gen1_rejects_out_of_range() -> None:
+    with pytest.raises(ValueError, match="40 and 100"):
+        build_set_motor_speed_payload_gen1(39)
+    with pytest.raises(ValueError, match="40 and 100"):
+        build_set_motor_speed_payload_gen1(101)
