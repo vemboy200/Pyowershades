@@ -28,6 +28,7 @@ class SerialReply(TypedDict):
     direction: int
     serial: int
     dhcp_enabled: bool
+    server_hostname: str | None
 
 
 HEADER_SIZE = 8
@@ -380,12 +381,31 @@ def verify_packet(data: bytes) -> bool:
     return crc16_xmodem(data[4 : HEADER_SIZE + header.length]) == header.crc
 
 
+_SERIAL_REPLY_HOSTNAME_END = 87  # HEADER_SIZE(8) + 79-byte payload
+
+
 def parse_serial_reply(data: bytes) -> SerialReply | None:
     """Parse a Get Serial Number reply packet.
 
     Payload layout (after the 8-byte header): Model(1) Pad1(1) Pad2(1)
-    Direction(1) SerialLow(4) SerialHigh(4) DhcpEnabled(1) IP(4)
-    Subnet(4) Gateway(4) Internal(50).
+    Direction(1) SerialLow(4) SerialHigh(4) DhcpEnabled(1) Unknown(4)
+    IP(4) Subnet(4) Gateway(4) ServerHostname(50). Confirmed against a
+    real capture (2026-09-14) that revealed a live, non-empty hostname
+    value ("dashboard.powershades.com", PowerShades' real cloud
+    dashboard domain) - this corrects an earlier version of this
+    docstring that placed IP/Subnet/Gateway/ServerHostname 4 bytes too
+    early and never surfaced ServerHostname as a field at all. The
+    Unknown(4) field between DhcpEnabled and IP is unconfirmed - it
+    doesn't affect any field parsed here or previously.
+
+    server_hostname is this integration's only current way to read back
+    what Set Server Hostname (op 0x0B, not implemented here) has
+    configured - it's the DNS hostname the device resolves for its own
+    outbound "server" connections (confirmed from the vendor app's own
+    "DNS Hostname" field/confirmation dialog), most likely including
+    where Cloud Update Check/Trigger (op 0x44) actually connects.
+    server_hostname is None if the reply is too short to carry it (older
+    firmware, or a truncated reply) or the field is empty.
     """
     if len(data) < 24:
         return None
@@ -394,11 +414,17 @@ def parse_serial_reply(data: bytes) -> SerialReply | None:
     serial_low = struct.unpack("<I", data[12:16])[0]
     serial_high = struct.unpack("<I", data[16:20])[0]
     dhcp_enabled = bool(data[20])
+    server_hostname = (
+        _decode_name(data[37:_SERIAL_REPLY_HOSTNAME_END])
+        if len(data) >= _SERIAL_REPLY_HOSTNAME_END
+        else None
+    )
     return {
         "model": model,
         "direction": direction,
         "serial": (serial_high << 32) | serial_low,
         "dhcp_enabled": dhcp_enabled,
+        "server_hostname": server_hostname,
     }
 
 

@@ -165,6 +165,41 @@ def test_parse_serial_reply_too_short() -> None:
     assert parse_serial_reply(b"\x00" * 10) is None
 
 
+def test_parse_serial_reply_server_hostname() -> None:
+    """The trailing 50-byte field carries the DNS hostname the device
+    resolves for its own outbound connections - confirmed against a real
+    capture that showed a live "dashboard.powershades.com" value."""
+    payload = struct.pack("<BBBBIIB", 2, 0, 0, 0, 12345, 0, 1)
+    payload += b"\x00" * 4  # unconfirmed field between DhcpEnabled and IP
+    payload += b"\x00" * 12  # IP, Subnet, Gateway
+    payload += b"dashboard.powershades.com".ljust(50, b"\x00")
+    pkt = build_packet(0x02, payload=payload)
+    result = parse_serial_reply(pkt)
+    assert result is not None
+    assert result["server_hostname"] == "dashboard.powershades.com"
+
+
+def test_parse_serial_reply_server_hostname_empty() -> None:
+    """An all-null hostname field decodes to None, not an empty string."""
+    payload = struct.pack("<BBBBIIB", 2, 0, 0, 0, 12345, 0, 1)
+    payload += b"\x00" * 66  # unknown(4) + IP/Subnet/Gateway(12) + hostname(50)
+    pkt = build_packet(0x02, payload=payload)
+    result = parse_serial_reply(pkt)
+    assert result is not None
+    assert result["server_hostname"] is None
+
+
+def test_parse_serial_reply_server_hostname_missing_on_short_reply() -> None:
+    """A reply too short to carry the hostname field reports None rather
+    than failing the whole parse - older firmware may not send it."""
+    payload = struct.pack("<BBBBIIB", 2, 0, 0, 0, 12345, 0, 1)
+    payload = payload.ljust(24 - HEADER_SIZE, b"\x00")
+    pkt = build_packet(0x02, payload=payload)
+    result = parse_serial_reply(pkt)
+    assert result is not None
+    assert result["server_hostname"] is None
+
+
 def test_parse_shade_name_reply() -> None:
     name = b"Living Room"
     payload = b"\x00" + name.ljust(50, b"\x00")

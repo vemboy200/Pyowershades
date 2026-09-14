@@ -48,7 +48,7 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 
 | Op (hex / dec) | Name | Status | Notes |
 | --- | --- | --- | --- |
-| `0x00` / 0 | Get Serial Number | Implemented | returns model, serial, direction, DHCP flag; also carries an optional trailing hostname string if one is set |
+| `0x00` / 0 | Get Serial Number | Implemented | returns model, serial, direction, DHCP flag, and a trailing `server_hostname` field - the DNS hostname the device resolves for its own outbound "server" connections (see the Set Server Hostname / `0x0B` note below). Confirmed against a real capture (2026-09-14) that returned a live, non-empty value: `dashboard.powershades.com`, PowerShades' actual cloud dashboard domain |
 | `0x01` / 1 | Set Limit | Implemented | sets the upper or lower travel limit to the current position |
 | `0x03` / 3 | Jog Up | Implemented | |
 | `0x04` / 4 | Jog Down | Implemented | |
@@ -56,7 +56,7 @@ The model byte in a Get Serial Number reply has exactly two real values (confirm
 | `0x06` / 6 | Pair Device | Candidate | RF only |
 | `0x07` / 7 | Unpair Device | Candidate | RF only; not wired to a visible button in the vendor app, may be legacy |
 | `0x08` / 8 | Indicate / Beep | Implemented | |
-| `0x0B` / 11 | Set Server Hostname | Candidate | sets a custom DNS hostname on the device |
+| `0x0B` / 11 | Set Server Hostname | Candidate | confirmed from the vendor app's own field label ("DNS Hostname") and its confirmation dialog ("You are about to set the device DNS HostName to: ... Are you sure?") to configure a DNS hostname the device itself resolves for its own outbound connections - not a self-advertised name for others to discover it by (no mDNS/Bonjour/Zeroconf/DNS-SD evidence exists anywhere in the decompiled source). This is unauthenticated like every other command here, so anyone on the LAN could redirect it; Get Serial Number's `server_hostname` field (see above) is the only way this library can currently read back the configured value, since Set Server Hostname itself isn't implemented |
 | `0x0C` / 12 | Set IP Settings | Candidate | DHCP vs. static, IP/subnet/gateway |
 | `0x0E` / 14 | Set Serial Number | Destructive/admin-gated | overwrites the device's own identity |
 | `0x13` / 19 | IP Whitelisting | Candidate | get/set up to 4 allowed controller IPv4 addresses plus an enable flag; separate access-control feature from Set IP Settings |
@@ -102,7 +102,7 @@ If `pyowershades` ever implements a command that needs this, it should send both
 ## Known gaps and uncertainties
 
 - The RF pairing model (Pair Device, RF Link Feedback, RF Unlink Feedback, Unpair Device, Add Remote) is not fully disambiguated — some of these may be legacy paths not reachable from the current app UI. This needs real RF hardware to verify.
-- A few byte offsets in the Get Serial Number reply (IP/subnet/gateway, when present) are flagged as uncertain even in the vendor's own source, which contains a comment questioning whether its own documentation matches its sample data.
+- The Get Serial Number reply's IP/Subnet/Gateway/ServerHostname fields sit 4 bytes later than an earlier version of this doc claimed - a real capture (2026-09-14) revealed an unconfirmed 4-byte field between DhcpEnabled and IP that isn't accounted for anywhere in the vendor's own source (which itself contains a comment questioning whether its own documentation matches its sample data). Only `server_hostname` is actually parsed by `parse_serial_reply` today; IP/Subnet/Gateway's exact field boundaries are now correctly positioned in the docstring but still unexposed as parsed fields, since nothing in this library needs them yet.
 - Fields in the Get Status reply marked reserved/future by the vendor (memory, time, cycle count, stall count, temperature) should not be assumed populated on real firmware without checking first.
 - `DeviceIdReply`'s `serial_raw` and `end_stop_raw` fields have confirmed types/sizes but unconfirmed meaning — read as zero on the one real device tested so far.
 - `DebugInfoReply`'s `error_list` **is now decoded** (as of `parse_error_list`): the field is ASCII text, not a raw byte array — a comma-separated list of decimal `PoEErrorCode` values (e.g. `"9,21,33,"`), null-padded to 50 bytes. Confirmed by reading `PowershadesConfig.NET/frmTest.cs`'s own decoding of this field, which matches the 33-member `PoEErrorCode` enum in `PowershadesCommon/PoEErrorCode.cs` (`POE_ERROR_CODES` in `const.py`). Only ever observed empty (no logged errors) on real hardware so far, so the non-empty parsing path is unverified against a real device, only against the vendor's own decoding logic.
