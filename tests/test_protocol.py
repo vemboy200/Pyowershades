@@ -7,7 +7,10 @@ import pytest
 from pyowershades import (
     ADMIN_ACCESS_KEY,
     ADMIN_ACCESS_PAYLOAD,
+    CLOUD_UPDATE_CHECK_PAYLOAD,
+    CLOUD_UPDATE_INSTALL_PAYLOAD,
     DISABLE_TCP_CLOUD,
+    OP_CLOUD_UPDATE,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
     OP_GET_DEVICE_ID,
@@ -22,6 +25,7 @@ from pyowershades import (
     build_set_motor_speed_payload_gen1,
     build_set_name_payload,
     build_set_position_payload,
+    parse_cloud_update_reply,
     parse_debug_info_reply,
     parse_device_id_reply,
     parse_disables_reply,
@@ -76,7 +80,7 @@ def test_parse_header_too_short() -> None:
 
 def test_build_set_position_payload() -> None:
     payload = build_set_position_payload(75)
-    mask, percent, tilt, channel_mask = struct.unpack("<HhhI", payload)
+    mask, percent, tilt, _channel_mask = struct.unpack("<HhhI", payload)
     assert percent == 75
     assert mask == 0x0001
     assert tilt == 0
@@ -474,3 +478,25 @@ def test_build_set_motor_speed_payload_gen1_rejects_out_of_range() -> None:
         build_set_motor_speed_payload_gen1(39)
     with pytest.raises(ValueError, match="40 and 100"):
         build_set_motor_speed_payload_gen1(101)
+
+
+def test_cloud_update_payloads_are_the_fixed_flags() -> None:
+    assert CLOUD_UPDATE_CHECK_PAYLOAD == bytes([1])
+    assert CLOUD_UPDATE_INSTALL_PAYLOAD == bytes([2])
+
+
+def test_parse_cloud_update_reply() -> None:
+    pkt = build_packet(OP_CLOUD_UPDATE, payload=struct.pack("<I", 512))
+    result = parse_cloud_update_reply(pkt)
+    assert result is not None
+    assert result.result == 512
+
+
+def test_parse_cloud_update_reply_wrong_op() -> None:
+    pkt = build_packet(0x99, payload=struct.pack("<I", 512))
+    assert parse_cloud_update_reply(pkt) is None
+
+
+def test_parse_cloud_update_reply_too_short() -> None:
+    pkt = build_packet(OP_CLOUD_UPDATE, payload=b"\x01\x02")
+    assert parse_cloud_update_reply(pkt) is None

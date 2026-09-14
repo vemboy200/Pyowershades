@@ -12,6 +12,7 @@ from typing import TypedDict
 from .const import (
     ADMIN_ACCESS_KEY,
     DISABLE_TCP_CLOUD,
+    OP_CLOUD_UPDATE,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
     OP_GET_DEVICE_ID,
@@ -295,6 +296,12 @@ GET_SHADE_NAME_PAYLOAD = b"\x00"
 
 # Admin Access (op 0x3C) payload - always this same fixed key.
 ADMIN_ACCESS_PAYLOAD = struct.pack("<I", ADMIN_ACCESS_KEY)
+
+# Cloud Update Check/Trigger (op 0x44) payloads - a single flag byte,
+# confirmed from the vendor app's own two button handlers
+# (frmMain.cs: GetLatestFromServer sends 1, UpdateFromServer sends 2).
+CLOUD_UPDATE_CHECK_PAYLOAD = bytes([1])
+CLOUD_UPDATE_INSTALL_PAYLOAD = bytes([2])
 
 
 def crc16_xmodem(data: bytes) -> int:
@@ -847,6 +854,50 @@ def build_set_motor_speed_payload_gen1(percent: int) -> bytes:
         0,  # SoftStopDecelCounts
         0,  # SoftStopDecelTime - never assigned by the vendor's own code either
     )
+
+
+@dataclass(frozen=True)
+class CloudUpdateReply:
+    """Parsed Cloud Update Check/Trigger reply (op 0x44).
+
+    `result` is a raw 4-byte unsigned int - confirmed from
+    `PowershadesCommon.dll`'s `UdpGenericResponse.Result` and from the
+    vendor app's own "Check Latest From Server" button, which shows this
+    exact value, unmodified, in a dialog titled "Latest Firmware on
+    Server" (`frmMain.cs`). That's evidence it's meant to be a firmware
+    build/revision number for the device's own cloud dashboard, in the
+    same raw-integer style Get Device ID's `low_rev`/`high_rev` already
+    use for the currently-installed firmware - but the vendor app never
+    decomposes or compares it to anything, so whether it's actually on
+    the same numeric scale as `low_rev`/`high_rev` (and therefore
+    meaningfully comparable to them) is unconfirmed, not proven.
+
+    A trigger (install) request most likely gets this same generic reply
+    shape back (matching how every other command is acknowledged), but
+    the vendor app's own trigger handler doesn't read a reply at all, so
+    what `result` holds on that response - if anything - isn't confirmed
+    either.
+    """
+
+    result: int
+
+
+_CLOUD_UPDATE_REPLY_FORMAT = "<I"
+_CLOUD_UPDATE_REPLY_SIZE = struct.calcsize(_CLOUD_UPDATE_REPLY_FORMAT)
+
+
+def parse_cloud_update_reply(data: bytes) -> CloudUpdateReply | None:
+    """Parse a Cloud Update Check/Trigger reply packet."""
+    header = parse_header(data)
+    if header is None or header.op != OP_CLOUD_UPDATE:
+        return None
+    payload = data[HEADER_SIZE : HEADER_SIZE + header.length]
+    if len(payload) < _CLOUD_UPDATE_REPLY_SIZE:
+        return None
+    (result,) = struct.unpack(
+        _CLOUD_UPDATE_REPLY_FORMAT, payload[:_CLOUD_UPDATE_REPLY_SIZE]
+    )
+    return CloudUpdateReply(result=result)
 
 
 def battery_percentage(battery_mv: int | None) -> int | None:
