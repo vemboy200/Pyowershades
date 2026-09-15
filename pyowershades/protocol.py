@@ -339,6 +339,32 @@ def build_set_name_payload(name: str) -> bytes:
     return b"\x01" + name.encode("ascii")[:50].ljust(50, b"\x00")
 
 
+_SET_SERVER_HOSTNAME_PAYLOAD_SIZE = 120
+
+
+def build_set_server_hostname_payload(hostname: str) -> bytes:
+    """Build a Set Server Hostname payload (op 0x0B).
+
+    120 bytes, ASCII, null-padded, no leading flag byte - confirmed from
+    the vendor app's own handler (frmMain.cs's btnSetServerHostname_Click)
+    and the UdpPayload struct's actual 120-byte fixed buffer size. The
+    vendor app itself copies 122 bytes into that 120-byte buffer (a
+    genuine 2-byte overflow past the field, and past the 128-byte WB_MSG
+    struct itself) - that's a bug in the vendor's own code, not a real
+    122-byte wire format, so it isn't reproduced here.
+
+    Raises ValueError if hostname doesn't fit in 120 ASCII bytes - the
+    vendor app has no such check and would crash instead (a .NET
+    ArgumentException) if asked to encode something too long.
+    """
+    encoded = hostname.encode("ascii")
+    if len(encoded) > _SET_SERVER_HOSTNAME_PAYLOAD_SIZE:
+        raise ValueError(
+            f"hostname must be at most {_SET_SERVER_HOSTNAME_PAYLOAD_SIZE} ASCII bytes"
+        )
+    return encoded.ljust(_SET_SERVER_HOSTNAME_PAYLOAD_SIZE, b"\x00")
+
+
 def build_json_test_payload(payload: str) -> bytes:
     """Build the payload for the raw JSON test message (op 0x40).
 

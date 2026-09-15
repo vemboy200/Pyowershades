@@ -25,6 +25,7 @@ from pyowershades import (
     build_set_motor_speed_payload_gen1,
     build_set_name_payload,
     build_set_position_payload,
+    build_set_server_hostname_payload,
     parse_cloud_update_reply,
     parse_debug_info_reply,
     parse_device_id_reply,
@@ -106,6 +107,24 @@ def test_build_set_name_payload() -> None:
 def test_build_set_name_payload_truncates_long_name() -> None:
     payload = build_set_name_payload("A" * 100)
     assert len(payload) == 51
+
+
+def test_build_set_server_hostname_payload() -> None:
+    payload = build_set_server_hostname_payload("dashboard.powershades.com")
+    assert len(payload) == 120
+    assert payload.startswith(b"dashboard.powershades.com")
+    assert payload[26:] == b"\x00" * (120 - 26)
+
+
+def test_build_set_server_hostname_payload_exact_max_length() -> None:
+    payload = build_set_server_hostname_payload("a" * 120)
+    assert len(payload) == 120
+    assert payload == b"a" * 120
+
+
+def test_build_set_server_hostname_payload_rejects_too_long() -> None:
+    with pytest.raises(ValueError, match="120 ASCII bytes"):
+        build_set_server_hostname_payload("a" * 121)
 
 
 def _make_status_packet(position: int, battery_mv: int) -> bytes:
