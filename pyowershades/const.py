@@ -86,6 +86,12 @@ POE_ERROR_CODES = {
 # maps to bit 6 of DisablesByte via .NET BitArray, LSB-first).
 DISABLE_TCP_CLOUD = 0x40
 
+# Bit 0 of a Set Disables byte marks it as a write, not a stored setting:
+# the vendor app sets it on every write, a write without it is silently
+# ignored, and the device never reports it back in a Get (a 0x41 write
+# reads back as 0x40). Confirmed on real Gen 1 hardware 2026-10-12.
+DISABLES_WRITE_FLAG = 0x01
+
 # Admin Access (op 0x3C) key. A fixed constant baked into every copy of
 # the vendor's app - not real authentication, gates privileged commands
 # like PoE Motor Parameters. Must be sent immediately before the
