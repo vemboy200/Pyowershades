@@ -10,6 +10,7 @@ from pyowershades import (
     CLOUD_UPDATE_CHECK_PAYLOAD,
     CLOUD_UPDATE_INSTALL_PAYLOAD,
     DISABLE_TCP_CLOUD,
+    DISABLES_WRITE_FLAG,
     OP_CLOUD_UPDATE,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
@@ -328,18 +329,19 @@ def test_parse_device_id_reply_too_short() -> None:
 
 
 def test_parse_disables_reply_tcp_cloud_enabled() -> None:
-    pkt = build_packet(OP_DISABLES, payload=bytes([0x01]))
+    pkt = build_packet(OP_DISABLES, payload=bytes([0x00]))
     result = parse_disables_reply(pkt)
     assert result is not None
-    assert result.raw == 0x01
+    assert result.raw == 0x00
     assert result.tcp_cloud_disabled is False
 
 
 def test_parse_disables_reply_tcp_cloud_disabled() -> None:
-    pkt = build_packet(OP_DISABLES, payload=bytes([0x01 | DISABLE_TCP_CLOUD]))
+    # A Get never reports the write flag - a 0x41 write reads back as 0x40.
+    pkt = build_packet(OP_DISABLES, payload=bytes([DISABLE_TCP_CLOUD]))
     result = parse_disables_reply(pkt)
     assert result is not None
-    assert result.raw == 0x41
+    assert result.raw == 0x40
     assert result.tcp_cloud_disabled is True
 
 
@@ -354,16 +356,23 @@ def test_parse_disables_reply_too_short() -> None:
 
 
 def test_build_set_disables_payload_sets_bit_preserving_others() -> None:
-    # bit2 (PCB button disable) already set alongside the always-on bit0
-    current = 0x01 | 0x04
+    # bit2 (PCB button disable) already set, as a Get would report it
+    current = 0x04
     payload = build_set_disables_payload(current, tcp_cloud_disabled=True)
-    assert payload == bytes([current | DISABLE_TCP_CLOUD])
+    assert payload == bytes([DISABLES_WRITE_FLAG | 0x04 | DISABLE_TCP_CLOUD])
 
 
 def test_build_set_disables_payload_clears_bit_preserving_others() -> None:
-    current = 0x01 | 0x04 | DISABLE_TCP_CLOUD
+    current = 0x04 | DISABLE_TCP_CLOUD
     payload = build_set_disables_payload(current, tcp_cloud_disabled=False)
-    assert payload == bytes([0x01 | 0x04])
+    assert payload == bytes([DISABLES_WRITE_FLAG | 0x04])
+
+
+def test_build_set_disables_payload_always_sets_write_flag() -> None:
+    """The device ignores a Set Disables byte without bit 0, so every
+    write carries it - even when nothing else is disabled."""
+    payload = build_set_disables_payload(0x00, tcp_cloud_disabled=False)
+    assert payload == bytes([DISABLES_WRITE_FLAG])
 
 
 def test_admin_access_payload_is_the_fixed_key() -> None:

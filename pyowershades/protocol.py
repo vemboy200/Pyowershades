@@ -12,6 +12,7 @@ from typing import TypedDict
 from .const import (
     ADMIN_ACCESS_KEY,
     DISABLE_TCP_CLOUD,
+    DISABLES_WRITE_FLAG,
     OP_CLOUD_UPDATE,
     OP_DISABLES,
     OP_GET_DEBUG_INFO,
@@ -723,9 +724,10 @@ def parse_disables_reply(data: bytes) -> DisablesReply | None:
     """Parse a Get/Set Disables reply packet.
 
     Sending this op with an empty payload is a Get (the device replies
-    with its current byte); sending it with a 1-byte payload is a Set
-    (the reply confirms the byte that was written) - both replies share
-    this same shape.
+    with its current byte); sending it with a 1-byte payload is a Set.
+    Both replies share this same shape, but a Set's reply does not
+    confirm the byte that was written (real hardware replied 0x00 to a
+    write that did take effect) - send a Get afterwards to read it back.
     """
     header = parse_header(data)
     if header is None or header.op != OP_DISABLES:
@@ -745,12 +747,15 @@ def build_set_disables_payload(current: int, *, tcp_cloud_disabled: bool) -> byt
     the TCP/cloud bit set (and every other bit blindly cleared) would
     silently undo any other Feature Disables the device already has set,
     e.g. via the official app.
+
+    The write flag (bit 0) is always set, as the vendor app does - the
+    device ignores a write without it.
     """
     if tcp_cloud_disabled:
         new_byte = current | DISABLE_TCP_CLOUD
     else:
         new_byte = current & ~DISABLE_TCP_CLOUD & 0xFF
-    return bytes([new_byte])
+    return bytes([new_byte | DISABLES_WRITE_FLAG])
 
 
 @dataclass(frozen=True)
