@@ -865,7 +865,9 @@ def parse_motor_parameters_reply(data: bytes) -> MotorParametersReply | None:
     )
 
 
-def build_set_motor_speed_payload_gen1(percent: int) -> bytes:
+def build_set_motor_speed_payload_gen1(
+    percent: int, current: MotorParametersReply
+) -> bytes:
     """Build a Set PoE Motor Parameters payload that sets Gen 1 motor speed.
 
     This is the "Speed (%)" field in the vendor's own app (`frmMain.cs`'s
@@ -873,43 +875,48 @@ def build_set_motor_speed_payload_gen1(percent: int) -> bytes:
     DesiredRpmUP/DOWN. Confirmed valid range is 40-100 - the app itself
     refuses to send anything below 40.
 
-    Gen 1 firmware ignores whatever was previously configured: the
-    vendor's own `SetPoeParametersCommand` hardcodes every field except
-    MotorPowerUP/DOWN to fixed constants when `modelVersion == 0`,
-    regardless of current device state (confirmed byte-for-byte from
-    `frmMain.cs` - SpeedControlEnable and SoftStopEnable are explicitly
-    turned OFF, not preserved). This replicates that exact template
-    rather than reading current state first, since Gen 1 discards it
-    anyway. Gen 2 behaves completely differently (preserves current
-    state, scales the value x10) and is not supported by this function -
-    check hardware generation before calling this.
+    `current` is the shade's own config from a Get just beforehand. Every
+    field is written back unchanged except MotorPowerUP/DOWN and the two
+    jog powers, which the vendor app also sets to the speed. The vendor's
+    Gen 1 code instead sends a fixed template (`frmMain.cs`'s
+    `SetPoeParametersCommand` when `modelVersion == 0`), but the firmware
+    stores every field it's sent: on real hardware (2026-10-28) the one
+    shade that had been sent that template held its values, including
+    MotorPowerUpDECEL/DownDECEL=50 instead of the installed 100, which
+    made it crawl through the last stretch past SlowDownTargetInput.
+
+    SoftStopDecelCounts/SoftStopDecelTime aren't in a Get reply (see
+    MotorParametersReply), so they can't be preserved and are sent as 0,
+    as the vendor template does. Gen 2 behaves differently (scales the
+    value x10) and is not supported by this function - check hardware
+    generation before calling this.
     """
     if not 40 <= percent <= 100:
         raise ValueError("percent must be between 40 and 100 (Gen 1 device floor)")
     return struct.pack(
         _MOTOR_PARAMS_SET_FORMAT,
         1,  # ParamType: 1 = Set
-        0,  # SpeedControlEnable - off, per the vendor's own Gen 1 template
-        99,  # SlowDownTargetInput
-        2,  # ComputerMotorPowerTolerence
+        int(current.speed_control_enable),
+        current.slow_down_target_input,
+        current.computer_motor_power_tolerance,
         percent,  # JogDotPowerDecel - vendor sets this to MotorPowerUP too
         percent,  # JogDotPower
-        75,  # DesiredRpmUP - fixed default, unrelated to this control on Gen 1
-        45,  # DesiredRpmUpDECEL
-        15,  # ComputerMotorPowerTimeUP
-        15,  # ComputerMotorPowerTimeUpDECEL
+        current.desired_rpm_up,
+        current.desired_rpm_up_decel,
+        current.computer_motor_power_time_up,
+        current.computer_motor_power_time_up_decel,
         percent,  # MotorPowerUP
-        50,  # MotorPowerUpDECEL
-        75,  # DesiredRpmDOWN
-        45,  # DesiredRpmDownDECEL
-        15,  # ComputerMotorPowerTimeDOWN
-        15,  # ComputerMotorPowerTimeDownDECEL
+        current.motor_power_up_decel,
+        current.desired_rpm_down,
+        current.desired_rpm_down_decel,
+        current.computer_motor_power_time_down,
+        current.computer_motor_power_time_down_decel,
         percent,  # MotorPowerDOWN
-        50,  # MotorPowerDownDECEL
-        0,  # SoftStopDelay - never assigned by the vendor's own code either
-        0,  # SoftStopEnable - off
-        0,  # SoftStopDecelCounts
-        0,  # SoftStopDecelTime - never assigned by the vendor's own code either
+        current.motor_power_down_decel,
+        current.soft_stop_delay,
+        int(current.soft_stop_enable),
+        0,  # SoftStopDecelCounts - not in a Get reply
+        0,  # SoftStopDecelTime - not in a Get reply
     )
 
 

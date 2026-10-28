@@ -17,6 +17,7 @@ from pyowershades import (
     OP_GET_DEVICE_ID,
     OP_GET_STATUS,
     OP_POE_MOTOR_PARAMS,
+    MotorParametersReply,
     StatusReply,
     battery_percentage,
     build_json_test_payload,
@@ -476,8 +477,18 @@ def _unpack_set_payload(payload: bytes) -> tuple:
     return struct.unpack("<4BhhIIHHhhIIHHhhBBHH", payload)
 
 
+def _installed_motor_params() -> MotorParametersReply:
+    """The config every untouched shade read back on real hardware
+    (2026-10-28, 14 Gen 1 shades, all identical)."""
+    result = parse_motor_parameters_reply(
+        _motor_params_reply_packet(soft_stop_delay=15)
+    )
+    assert result is not None
+    return result
+
+
 def test_build_set_motor_speed_payload_gen1_sets_power_both_directions() -> None:
-    payload = build_set_motor_speed_payload_gen1(70)
+    payload = build_set_motor_speed_payload_gen1(70, _installed_motor_params())
     fields = _unpack_set_payload(payload)
 
     assert fields[0] == 1  # ParamType: Set
@@ -491,13 +502,12 @@ def test_build_set_motor_speed_payload_gen1_sets_power_both_directions() -> None
     assert jog_dot_power_decel == 70
 
 
-def test_build_set_motor_speed_payload_gen1_matches_vendor_fixed_template() -> None:
-    """Every field the vendor's own Gen 1 code hardcodes, not just the
-    speed value, must match exactly - Gen 1 discards whatever was
-    previously configured, confirmed byte-for-byte from frmMain.cs."""
-    payload = build_set_motor_speed_payload_gen1(100)
-    fields = _unpack_set_payload(payload)
-    assert fields[0] == 1  # ParamType: Set
+def test_build_set_motor_speed_payload_gen1_preserves_current_config() -> None:
+    """Every field but the speed is written back as read - the firmware
+    stores whatever it's sent, so a fixed template would overwrite the
+    installed decel power (100) with the vendor's 50."""
+    current = _installed_motor_params()
+    payload = build_set_motor_speed_payload_gen1(40, current)
     (
         _param_type,
         speed_control_enable,
@@ -506,41 +516,48 @@ def test_build_set_motor_speed_payload_gen1_matches_vendor_fixed_template() -> N
         _jog_dot_power_decel,
         _jog_dot_power,
         desired_rpm_up,
-        _desired_rpm_up_decel,
-        _computer_motor_power_time_up,
-        _computer_motor_power_time_up_decel,
+        desired_rpm_up_decel,
+        computer_motor_power_time_up,
+        computer_motor_power_time_up_decel,
         _motor_power_up,
         motor_power_up_decel,
         desired_rpm_down,
-        _desired_rpm_down_decel,
-        _computer_motor_power_time_down,
-        _computer_motor_power_time_down_decel,
+        desired_rpm_down_decel,
+        computer_motor_power_time_down,
+        computer_motor_power_time_down_decel,
         _motor_power_down,
         motor_power_down_decel,
         soft_stop_delay,
         soft_stop_enable,
         soft_stop_decel_counts,
         soft_stop_decel_time,
-    ) = fields
+    ) = _unpack_set_payload(payload)
 
     assert speed_control_enable == 0
     assert slow_down_target_input == 99
     assert computer_motor_power_tolerance == 2
     assert desired_rpm_up == 75
+    assert desired_rpm_up_decel == 45
+    assert computer_motor_power_time_up == 25
+    assert computer_motor_power_time_up_decel == 15
+    assert motor_power_up_decel == 100
     assert desired_rpm_down == 75
-    assert motor_power_up_decel == 50
-    assert motor_power_down_decel == 50
+    assert desired_rpm_down_decel == 45
+    assert computer_motor_power_time_down == 25
+    assert computer_motor_power_time_down_decel == 15
+    assert motor_power_down_decel == 100
+    assert soft_stop_delay == 15
     assert soft_stop_enable == 0
-    assert soft_stop_delay == 0
     assert soft_stop_decel_counts == 0
     assert soft_stop_decel_time == 0
 
 
 def test_build_set_motor_speed_payload_gen1_rejects_out_of_range() -> None:
+    current = _installed_motor_params()
     with pytest.raises(ValueError, match="40 and 100"):
-        build_set_motor_speed_payload_gen1(39)
+        build_set_motor_speed_payload_gen1(39, current)
     with pytest.raises(ValueError, match="40 and 100"):
-        build_set_motor_speed_payload_gen1(101)
+        build_set_motor_speed_payload_gen1(101, current)
 
 
 def test_cloud_update_payloads_are_the_fixed_flags() -> None:
