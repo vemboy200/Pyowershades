@@ -52,6 +52,22 @@ On 2026-11-16, a direct test on one shade waited 30 seconds with no retries and 
 
 So a longer timeout won't fix this. Why the shade doesn't answer is unknown. Possible causes include the firmware ignoring the op, the check needing the shade registered a certain way on PowerShades' dashboard, or the dashboard not answering it. None of these have been tested. `parse_cloud_update_reply` is still unverified against a real reply for the same reason.
 
+## The local protocol has no authentication
+
+This is a firmware limitation, not an unexplained behavior. It's listed here because it belongs on the same "needs a firmware fix" list as the two sections above.
+
+Any device on the same LAN can send a shade any command over UDP port 42, with nothing to prove who it is. That includes:
+
+- **Set Server Hostname (`0x0B`).** This redirects where the shade's cloud connection and its cloud firmware check and install (`0x44`) go. Anyone on the network could point a shade at their own server, which could then receive the shade's remote-control traffic or offer it firmware. `hass-powershades` reads the hostname back at setup and blocks installs when it isn't PowerShades' own domain, but that only detects a redirect. It doesn't prevent one.
+- **Feature Disables (`0x35`).** Setting bit 6 alone is enough to cause the dropout loop described above.
+- **Everything behind Admin Access (`0x3C`).** This includes motor parameters, Set Serial Number, factory reset and the UDP firmware flash (`0x30`). The admin key is the same fixed constant for every shade and is built into every copy of the vendor app (see [PROTOCOL.md](PROTOCOL.md#admin-access-and-the-factory-key)), so it stops accidents, not attackers.
+
+No integration can fix this from the outside. A firmware fix would need at least these:
+
+- per-device credentials, so the shared admin key goes away;
+- authentication on configuration writes, starting with Set Server Hostname and the firmware ops;
+- checking that firmware fetched by `0x44` is signed by PowerShades before installing it. Whether the shade checks anything today is unknown.
+
 ## How to help confirm or rule these out
 
 - A packet capture on the LAN during a green LED "on" window (ideally an all-at-once event), checking for outbound TCP SYN packets to any external host at the moment it lights up - and in the seconds *before* it lights up, when local polls sometimes stop being answered.
