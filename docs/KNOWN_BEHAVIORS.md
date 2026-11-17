@@ -27,8 +27,34 @@ In 24 hours of history from the maintainer's installation (2026-09-23 to 2026-09
 
 It doesn't happen every time: the same day had 81 green LED windows in total, and only 12 were preceded by an unavailable blip. Whatever the shade is doing right before its green LED lights up (most likely the same cloud connection activity described above) seems to sometimes block it from answering local polls for long enough to miss one or more.
 
+## Turning cloud off makes the daily check-in drop the shade over and over (Gen 1, observed once)
+
+Every PoE shade normally drops off local UDP for about 15-30 seconds once a day, at what looks like its cloud check-in. That moment drifts about 6-7 minutes later each day (about every 24h06m).
+
+On 2026-11-15 at 23:33 UTC, the maintainer set Feature Disables (`0x35`) bit 6 (`DISABLE_TCP_CLOUD`) on one Gen 1 shade. At its next check-in time (about 22:30 UTC on 2026-11-16, right where the daily drift put it), the shade did not drop off once. It went unavailable every 1-2 minutes, for 10-60 seconds each time, for 80 minutes straight. Clearing the bit again stopped it right away.
+
+Clearing the bit was itself hard during the loop. The read-modify-write (Get, Set, then Get to confirm) failed twice because the shade dropped out partway through, and only the third attempt landed.
+
+The cause is unconfirmed. The pattern fits the shade's firmware still trying its cloud connection on schedule, failing because TCP/cloud is disabled, and retrying in a loop that blocks local UDP each time. A packet capture during the loop would confirm or rule that out. This was seen on one shade, once, so it isn't known whether it happens every time or on Gen 2.
+
+**Practical advice:** don't set bit 6. Home Assistant's `hass-powershades` integration removed its Allow Cloud Connection switch for this reason. If a shade is dropping off every minute or two instead of about once a day, check whether bit 6 is set and clear it, retrying until a Get confirms it.
+
+## Cloud Update Check (`0x44`, flag 1) never replies (Gen 1)
+
+The vendor's Config.NET app sends the check once and waits 10 seconds for a reply. On the maintainer's Gen 1 shades, no shade has ever answered it.
+
+On 2026-11-16, a direct test on one shade waited 30 seconds with no retries and got no reply. At the time:
+
+- the shade's cloud connection was on (Disables read `0x00`);
+- Debug Info showed `ClientState` 7 and an empty error list;
+- the shade was answering every other command normally;
+- from the same LAN, `dashboard.powershades.com` and `cloudserver.powershades.com` both resolved and accepted TCP connections on port 60.
+
+So a longer timeout won't fix this. Why the shade doesn't answer is unknown. Possible causes include the firmware ignoring the op, the check needing the shade registered a certain way on PowerShades' dashboard, or the dashboard not answering it. None of these have been tested. `parse_cloud_update_reply` is still unverified against a real reply for the same reason.
+
 ## How to help confirm or rule these out
 
 - A packet capture on the LAN during a green LED "on" window (ideally an all-at-once event), checking for outbound TCP SYN packets to any external host at the moment it lights up - and in the seconds *before* it lights up, when local polls sometimes stop being answered.
-- Testing with Feature Disables (`0x35`) bit 6 (`DISABLE_TCP_CLOUD`, "disable TCP/cloud connectivity") set on some shades, to see whether they drop out of the all-at-once events or stop lighting up entirely.
+- A packet capture while a shade with Feature Disables bit 6 set is stuck in the dropout loop above, to see what it's actually retrying. Expect it to disturb that shade until the bit is cleared.
+- A reply to Cloud Update Check from any shade (any generation or firmware), with the raw reply bytes.
 - Reports from other installations: does this activity show up for shades that *don't* share a cloud account, or that aren't all on the same LAN?
