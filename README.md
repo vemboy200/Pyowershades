@@ -21,7 +21,8 @@ import asyncio
 from pyowershades import async_discover_devices
 
 async def main():
-    devices = await async_discover_devices(["192.168.1.255"])
+    # Pass this machine's own LAN IP (the interface to broadcast from), not the broadcast address.
+    devices = await async_discover_devices(["192.168.1.20"])
     for device in devices:
         print(device)  # {"ip": "192.168.1.50", "serial": 12345, "model": 1}
 
