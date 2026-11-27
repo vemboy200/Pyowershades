@@ -19,6 +19,8 @@ First observed 2026-09-13 on the maintainer's own installation (15 PoE shades, t
 
 Because both are simultaneously true, this observation alone can't distinguish "the PowerShades cloud service triggers every shade on an account" from "something on the shared LAN triggers them" (a local broadcast/discovery mechanism, switch-level behavior, or something else entirely). Confirming the real cause needs either a packet capture during an all-at-once event (watching for outbound TCP traffic to an external host), or a comparison case where shades share an account but not a LAN (or vice versa) - neither of which the maintainer currently has a way to test.
 
+**Update, November 2026: the 2-minute light is a new cloud connection.** With a logging relay standing in for PowerShades' server (see [The cloud connection](#the-cloud-connection-tcp-port-60) below), every 2-minute green window on the relayed shades started a few seconds after the shade opened a new TCP connection to it. Data flowing over an already-open connection never lit it: one shade's 18-hour session carried about 2,300 server messages with no LED activity. Failed connection attempts show as short 10-20 second green blips instead. This still doesn't explain the all-at-once events, though a server-side restart that drops every shade's connection at once would fit. Not every flash is a cloud connection either: one shade also flashed twice in a day with no connection and no DNS lookup, cause unknown.
+
 ## Brief "Unavailable" transitions end exactly when the green LED lights up (cause unconfirmed)
 
 Local UDP polls intermittently time out, which shows up in Home Assistant as a shade going `unavailable` for anywhere from about 10 seconds to a couple of minutes before recovering on its own.
@@ -26,6 +28,8 @@ Local UDP polls intermittently time out, which shows up in Home Assistant as a s
 In 24 hours of history from the maintainer's installation (2026-09-23 to 2026-09-24), all 12 of these unavailable blips, spread across 11 different shades and lasting 10 to 156 seconds, ended at the exact moment that same shade's green LED lit up (often a short 10-60 second green blip, then a normal ~110-120 second window right after). So the shade stops answering local UDP just *before* its green LED activity, then comes back as the LED turns on - not during the LED window, as first assumed.
 
 It doesn't happen every time: the same day had 81 green LED windows in total, and only 12 were preceded by an unavailable blip. Whatever the shade is doing right before its green LED lights up (most likely the same cloud connection activity described above) seems to sometimes block it from answering local polls for long enough to miss one or more.
+
+**Update, November 2026:** relay logs show the daily blip is the shade reconnecting its cloud session (see below). The shade stops answering local UDP for about 10-30 seconds while it does.
 
 ## Turning cloud off makes the daily check-in drop the shade over and over (Gen 1, observed once)
 
@@ -52,9 +56,37 @@ On 2026-11-16, a direct test on one shade waited 30 seconds with no retries and 
 
 So a longer timeout won't fix this. Why the shade doesn't answer is unknown. Possible causes include the firmware ignoring the op, the check needing the shade registered a certain way on PowerShades' dashboard, or the dashboard not answering it. None of these have been tested. `parse_cloud_update_reply` is still unverified against a real reply for the same reason.
 
+## The cloud connection (TCP port 60)
+
+Observed in November 2026 on Gen 1 shades, by pointing powershades.com at a logging relay on the LAN with a DNS rewrite:
+
+- Each shade keeps one **persistent** TCP connection to its Server Hostname on port 60 (`dashboard.powershades.com` on Gen 1). It isn't a once-a-day connection: the server sends a 16-byte message about every minute and the shade answers.
+- **The server speaks first** (32 bytes). The handshake that follows always has the same shape (32, 48, 16, 112, 32, then 16-byte messages), but different bytes every time.
+- **It's encrypted.** Every message is a multiple of 16 bytes and looks random, which suggests a 16-byte block cipher (AES is likely but unconfirmed).
+- **It's real challenge-response.** Replaying a recorded server handshake fails: the shade's replies differ every attempt even with an identical server opener, and it hangs up after the third message. So a stand-in server can't complete the handshake without the key and algorithm.
+- **Once a day the shade reconnects.** It opens a new connection while the old one is still open, sometimes a second one a couple of minutes later, and keeps the last one for about a day. The time drifts about 6-7 minutes later each day.
+- **Changing the Server Hostname** (`0x0B`) makes the shade drop its connection and look up the new value within seconds.
+- **The hostname always goes through DNS.** Set to a LAN IP address or an mDNS `.local` name, the shade sent it to its DNS server as an ordinary `A` query (the IP literally, as if it were a name), got NXDOMAIN, and never connected. So only a name your DNS server resolves works.
+
+## Keeping a shade off the PowerShades cloud (Gen 1)
+
+The shade needs *something* to connect to, or it drops off local UDP more often. What was tried, each on one or two shades:
+
+| Method | Result |
+|---|---|
+| Cloud reachable (normal) | 1-2 short drops a day, at the daily reconnect |
+| Feature Disables bit 6 (`DISABLE_TCP_CLOUD`) | Dropped off every 1-2 minutes, for 80 minutes (see above) |
+| DNS block (NXDOMAIN for powershades.com) | Dropped off for about 12-14 seconds every 5-10 minutes |
+| Server Hostname set to a LAN IP or `.local` name | Lookup fails the same way as a DNS block (see above) |
+| Local server replaying a recorded handshake | No drops, but the handshake fails within seconds and the shade reconnects every 5-10 seconds (about 8,400 times a day), so its green LED stays lit |
+| Local server that accepts the connection and never replies | Same as the real cloud: about one 12-second drop and one or two 2-minute green LED windows a day, over two days on two shades. While connected, the shade sends a 48-byte message about every 2 minutes and doesn't seem to need an answer. |
+
+The last one is what [powershades-cloud-stub](https://github.com/vemboy200/powershades-cloud-stub) does in its `listen` mode, with a DNS rewrite pointing powershades.com at it. None of this has been tested on Gen 2, which uses `cloudserver.powershades.com`.
+
 ## How to help confirm or rule these out
 
 - A packet capture on the LAN during a green LED "on" window (ideally an all-at-once event), checking for outbound TCP SYN packets to any external host at the moment it lights up - and in the seconds *before* it lights up, when local polls sometimes stop being answered.
 - A packet capture while a shade with Feature Disables bit 6 set is stuck in the dropout loop above, to see what it's actually retrying. Expect it to disturb that shade until the bit is cleared.
 - A reply to Cloud Update Check from any shade (any generation or firmware), with the raw reply bytes.
 - Reports from other installations: does this activity show up for shades that *don't* share a cloud account, or that aren't all on the same LAN?
+- Any of the cloud connection or "keeping a shade off the cloud" results above repeated on a Gen 2 shade.
